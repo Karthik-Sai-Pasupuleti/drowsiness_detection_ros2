@@ -14,7 +14,7 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
 from std_msgs.msg import Float32MultiArray
-from drowsiness_detection_custom_msg.msg import EarMarValue
+from drowsiness_detection_msg.msg import EarMarValue
 from cv_bridge import CvBridge
 import cv2
 import numpy as np

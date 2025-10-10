@@ -1,5 +1,5 @@
 from cv_bridge import CvBridge
-from drowsiness_detection_custom_msg.msg import DrowsinessMetricsData
+from drowsiness_detection_msg.msg import DrowsinessMetricsData
 
 
 def extract_window_data(msg: "DrowsinessMetricsData", bridge: CvBridge) -> dict:

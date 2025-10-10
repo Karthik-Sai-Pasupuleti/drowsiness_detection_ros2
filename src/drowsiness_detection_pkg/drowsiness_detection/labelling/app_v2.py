@@ -26,7 +26,7 @@ from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
-from drowsiness_detection_custom_msg.msg import (
+from drowsiness_detection_msg.msg import (
     EarMarValue,
     LanePosition,
     DrowsinessMetricsData,
@@ -36,10 +36,10 @@ from std_msgs.msg import Float32MultiArray, String, Int32
 from carla_msgs.msg import CarlaEgoVehicleControl
 from cv_bridge import CvBridge
 
-from utils import extract_window_data
+from .utils import extract_window_data
 
 # Assume hdf5_manager.py exists and contains a save_to_hdf5 function
-from hdf5_manager import save_to_hdf5
+from .hdf5_manager import save_to_hdf5
 
 
 # --- Data Manager ---
@@ -439,6 +439,18 @@ def submit_labels():
     return store_selected_labels()
 
 
+
+def main():
+    try:
+        serve(app, host="0.0.0.0", port=5000)
+    except KeyboardInterrupt:
+        print("Shutting down web interface.")
+
+
+
+
+
 if __name__ == "__main__":
-    serve(app, host="0.0.0.0", port=5000)
+    main() 
+#    serve(app, host="0.0.0.0", port=5000)
 #     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)

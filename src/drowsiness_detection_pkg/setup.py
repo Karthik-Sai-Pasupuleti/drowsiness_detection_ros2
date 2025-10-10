@@ -26,9 +26,7 @@ setup(
     ],
     install_requires=[
         "setuptools",
-        # "carla_msgs",
-        "pygame",
-    ],  # include pygame since carla_manual_control uses it
+    ],
     zip_safe=True,
     maintainer="user",
     maintainer_email="user@todo.todo",
@@ -40,8 +38,8 @@ setup(
             "camera_node = drowsiness_detection.camera.camera_node:main",
             "mediapipe_node = drowsiness_detection.camera.mediapipe_node:main",
             "carla_node = drowsiness_detection.carla.carla_manual_control:main",
-            "driver_assistance_node = drowsiness_detection.driver_assistance_node:main",
-            "drowsiness_gui = drowsiness_detection.data_labelling_gui:main",
+            "driver_assistance_node = drowsiness_detection.main:main",
+            "drowsiness_gui = drowsiness_detection.labelling.app_v2:main",
             "steering_vibration_node = drowsiness_detection.bot.controls.steering_node:main",
             "speaker_node = drowsiness_detection.bot.controls.speaker_node:main",
             "fan_node = drowsiness_detection.bot.controls.fan_node:main",

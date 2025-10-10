@@ -13,7 +13,7 @@ import rclpy
 from rclpy.node import Node
 from carla_msgs.msg import CarlaEgoVehicleControl
 from std_msgs.msg import Float32
-from drowsiness_detection_custom_msg.msg import LanePosition
+from drowsiness_detection_msg.msg import LanePosition
 
 import pkg_resources
 
@@ -420,7 +420,7 @@ class DualControl(Node):
 
         self._parser = ConfigParser()
         config_path = pkg_resources.resource_filename(
-            "drowsiness_detection_pkg.carla", "wheel_config.ini"
+            "drowsiness_detection.carla", "wheel_config.ini"
         )
         self._parser.read(config_path)
         self._parser.read(config_path)
