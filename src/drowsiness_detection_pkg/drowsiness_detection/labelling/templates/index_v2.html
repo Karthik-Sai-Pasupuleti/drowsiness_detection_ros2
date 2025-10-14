@@ -356,12 +356,6 @@ async function submitLabels(){
         return;
     }
 
-    // Check if Voice Command action is selected AND feedback is missing
-    if (selectedActions.has('Voice Command') && !selectedVoiceFeedback) {
-        showNotification("You selected 'Voice Command' action. Please select a 'Yes' or 'No' for Voice Command feedback.", true);
-        return;
-    }
-
     // Convert Set to Array
     const actionsToSubmit = Array.from(selectedActions);
 
@@ -378,8 +372,8 @@ async function submitLabels(){
                 drowsiness_level: drowsiness_level,
                 actions: actionsToSubmit,
                 notes: notes,
-                // Only submit voice_feedback if the Voice Command action was selected
-                voice_feedback: selectedActions.has('Voice Command') ? selectedVoiceFeedback : null
+                // Submit the selected voice feedback value, which is null if no button was clicked.
+                voice_feedback: selectedVoiceFeedback 
             })
         });
         const data = await res.json();

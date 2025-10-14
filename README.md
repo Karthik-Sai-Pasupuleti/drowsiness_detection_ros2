@@ -119,3 +119,14 @@ Located in `src/ros-carla-msgs/msg/`:
 | Message Type | Description |
 |-------------|-------------|
 | `CarlaEgoVehicleControl.msg` | Vehicle control interface for CARLA simulator |
+
+
+## Steering Wheel Vibration 
+
+Setup the rules by following steps:
+- sudo nano /etc/udev/rules.d/99-logitech-g29.rules
+- paste: KERNEL=="hidraw*", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c24f", MODE="0666", SYMLINK+="logitech_g29"
+
+- Reload udev rules and trigger:
+  - sudo udevadm control --reload-rules
+  - sudo udevadm trigger

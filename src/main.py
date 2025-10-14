@@ -52,7 +52,7 @@ def draw_keypoints(frame, landmarks):
         x, y = int(landmarks[idx][0] * w), int(landmarks[idx][1] * h)
         cv2.circle(frame, (x, y), 3, (0, 0, 255), -1)
 # --- Initialize FaceLandmarker ---
-base_options = python.BaseOptions(model_asset_path=r"C:\Users\pasupuleti\Downloads\face_landmarker.task")#, delegate=python.BaseOptions.Delegate.GPU)
+base_options = python.BaseOptions(model_asset_path=r"/home/user/ros2_ws/src/models/face_landmarker.task")#, delegate=python.BaseOptions.Delegate.GPU)
 options = vision.FaceLandmarkerOptions(
     base_options=base_options,
     output_face_blendshapes=False,

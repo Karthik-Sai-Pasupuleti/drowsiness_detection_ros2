@@ -152,7 +152,7 @@ class RosBridge(Node):
         """Publish vibration activation message."""
         out = Vibration()
         out.duration = float(duration)
-        out.intensity = float(intensity)
+        out.intensity = int(intensity)
         self.vibration_pub.publish(out)
 
     # --- Voice commands ---

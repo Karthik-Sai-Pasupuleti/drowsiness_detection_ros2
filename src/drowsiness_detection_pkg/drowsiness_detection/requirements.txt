@@ -22,3 +22,4 @@ RPi.GPIO
 python-vlc
 gevent
 setuptools<58
+evdev

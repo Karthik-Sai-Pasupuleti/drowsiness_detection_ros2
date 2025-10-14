@@ -119,13 +119,6 @@ class CameraMediapipeNode(Node):
                     self.frame_queue.get_nowait()  # drop oldest
                     self.frame_queue.put_nowait(img_cv)
 
-                # Optional FPS logging
-                now = time.time()
-                if self.prev_time:
-                    fps = 1.0 / (now - self.prev_time)
-                    self.get_logger().info(f"Camera FPS: {fps:.2f}")
-                self.prev_time = now
-
                 time.sleep(0.001)  # yield thread
 
             except PySpin.SpinnakerException as ex:
@@ -154,7 +147,7 @@ class CameraMediapipeNode(Node):
             if len(frame.shape) == 2 or frame.shape[2] == 1:
                 frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
-            frame = cv2.resize(frame, (self.target_width, self.target_height))
+            # frame = cv2.resize(frame, (self.target_width, self.target_height))
 
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
@@ -184,11 +177,6 @@ class CameraMediapipeNode(Node):
             img_msg.header.stamp = self.get_clock().now().to_msg()
             img_msg.header.frame_id = "camera_optical_frame"
             self.image_pub.publish(img_msg)
-
-            # --- Calculate and log Mediapipe FPS
-            end_time = time.time()
-            mp_fps = 1.0 / (end_time - start_time)
-            self.get_logger().info(f"Mediapipe FPS: {mp_fps:.2f}")
 
         except Exception as e:
             self.get_logger().error(f"Mediapipe processing error: {e}")

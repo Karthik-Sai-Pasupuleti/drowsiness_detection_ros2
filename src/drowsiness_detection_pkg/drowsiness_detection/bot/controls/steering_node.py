@@ -11,7 +11,7 @@ from threading import Lock, Thread
 
 import rclpy
 from rclpy.node import Node
-from drowsiness_detection_custom_msg.msg import Vibration
+from drowsiness_detection_msg.msg import Vibration
 
 
 class WheelControlVibration(Node):
@@ -20,7 +20,7 @@ class WheelControlVibration(Node):
     via raw HID commands.
     """
 
-    HIDRAW_DEVICE = "logitech_raw"
+    HIDRAW_DEVICE = "logitech_g29"
 
     def __init__(self):
         super().__init__("wheel_vibration_node")
@@ -102,14 +102,14 @@ class WheelControlVibration(Node):
 
     # --- ROS2 callback ---
     def vibration_callback(self, msg: Vibration):
-        """
-        Callback for ROS subscriber.
-        Expects Vibration message with duration and intensity.
-        """
-        if len(msg.data) != 2:
-            self.get_logger().warn(f"Expected [duration, intensity], got: {msg.data}")
+        # Ensure duration and intensity are valid
+        if msg.duration <= 0 or not (0 <= msg.intensity <= 60):
+            self.get_logger().warn(
+                f"Invalid vibration message received: duration={msg.duration}, intensity={msg.intensity}"
+            )
             return
 
+        # Trigger vibration
         self.vibrate(msg.duration, msg.intensity)
 
     def close(self):
