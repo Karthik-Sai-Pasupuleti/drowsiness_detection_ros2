@@ -6,12 +6,6 @@ def generate_launch_description():
         [
             Node(
                 package="drowsiness_detection_pkg",
-                executable="camera_node",
-                name="camera_node",
-                output="screen",
-            ),
-            Node(
-                package="drowsiness_detection_pkg",
                 executable="mediapipe_node",
                 name="mediapipe_node",
                 output="screen",

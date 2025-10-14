@@ -50,7 +50,7 @@ class CameraNode(Node):
         if self.prev_time is not None:
             delta = current_time - self.prev_time
             fps = 1.0 / delta if delta > 0 else 0.0
-            # self.get_logger().info(f"Camera FPS: {fps:.2f}")
+            self.get_logger().info(f"Camera FPS: {fps:.2f}")
         self.prev_time = current_time
 
     def destroy_node(self):

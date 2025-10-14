@@ -35,8 +35,9 @@ setup(
     # tests_require=["pytest"],
     entry_points={
         "console_scripts": [
-            "camera_node = drowsiness_detection.camera.camera_node:main",
-            "mediapipe_node = drowsiness_detection.camera.mediapipe_node:main",
+            # "camera_node = drowsiness_detection.camera.camera_node:main",
+            # "mediapipe_node = drowsiness_detection.camera.mediapipe_node:main",
+            "mediapipe_node = drowsiness_detection.camera.camera_mediapipe_node:main",
             "carla_node = drowsiness_detection.carla.carla_manual_control:main",
             "driver_assistance_node = drowsiness_detection.main:main",
             "drowsiness_gui = drowsiness_detection.labelling.app_v2:main",

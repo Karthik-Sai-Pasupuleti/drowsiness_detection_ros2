@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ROS2 node: Publishes FLIR/Spinnaker camera frames on /camera/image_raw using PySpin
+ROS2 node: Publishes FLIR/Spinnaker camera frames on /camera/image_raw using PySpin with multithreading
 """
 
 import rclpy
@@ -10,6 +10,7 @@ from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 import PySpin
 import time
+import threading
 
 
 class DeviceEventHandler(PySpin.DeviceEventHandler):
@@ -36,14 +37,10 @@ class PySpinCameraNode(Node):
         self.declare_parameter("cam_id", None)
         self.cam_id = self.get_parameter("cam_id").get_parameter_value().string_value
         if not self.cam_id:
-            self.get_logger().warn(
-                "No cam_id specified — using first available camera."
-            )
+            self.get_logger().warn("No cam_id specified — using first available camera.")
 
         # --- ROS publisher
-        self.publisher_ = self.create_publisher(
-            Image, "/camera/image_raw", qos_profile_sensor_data
-        )
+        self.publisher_ = self.create_publisher(Image, "/camera/image_raw", qos_profile_sensor_data)
         self.bridge = CvBridge()
 
         # --- Initialize PySpin
@@ -54,15 +51,8 @@ class PySpinCameraNode(Node):
             raise RuntimeError("No FLIR cameras detected.")
 
         # Pick camera
-        self.cam = None
-        if self.cam_id:
-            for cam in self.cameras:
-                if str(cam.GetUniqueID()) == self.cam_id:
-                    self.cam = cam
-                    break
-        if not self.cam:
-            self.cam = self.cameras[0]
-            self.get_logger().info(f"Using camera: {self.cam.GetUniqueID()}")
+        self.cam = self.cameras[0]
+        self.get_logger().info(f"Using camera: {self.cam.GetUniqueID()}")
 
         # Initialize camera
         self.cam.Init()
@@ -74,17 +64,22 @@ class PySpinCameraNode(Node):
         self.cam.RegisterEventHandler(self.event_handler)
         self.get_logger().info(f"Camera initialized: {self.cam.DeviceSerialNumber}")
 
-        # Timer for publishing frames
+        # --- Multithreading setup
+        self.running = True
         self.prev_time = None
-        self.timer = self.create_timer(0.0, self.publish_frame)
+        self.thread = threading.Thread(target=self.frame_loop)
+        self.thread.start()
+
+    def frame_loop(self):
+        while self.running and rclpy.ok():
+            self.publish_frame()
+            time.sleep(0.01)  # Adjust for desired frame rate
 
     def publish_frame(self):
         try:
-            image_result = self.cam.GetNextImage(1000)  # timeout in ms
+            image_result = self.cam.GetNextImage()
             if image_result.IsIncomplete():
-                self.get_logger().warn(
-                    f"Incomplete image: {image_result.GetImageStatus()}"
-                )
+                self.get_logger().warn(f"Incomplete image: {image_result.GetImageStatus()}")
                 image_result.Release()
                 return
 
@@ -92,7 +87,7 @@ class PySpinCameraNode(Node):
             image_result.Release()
 
             # Convert to ROS Image
-            msg = self.bridge.cv2_to_imgmsg(img_cv, encoding="bgr8")
+            msg = self.bridge.cv2_to_imgmsg(img_cv, encoding="passthrough")
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.header.frame_id = "camera_optical_frame"
             self.publisher_.publish(msg)
@@ -101,17 +96,17 @@ class PySpinCameraNode(Node):
             now = time.time()
             if self.prev_time:
                 fps = 1.0 / (now - self.prev_time)
-                # self.get_logger().info(f"FPS: {fps:.2f}")
+                self.get_logger().info(f"Camera FPS: {fps:.2f}")
             self.prev_time = now
 
         except PySpin.SpinnakerException as ex:
             self.get_logger().error(f"Spinnaker error: {ex}")
-
         except Exception as e:
             self.get_logger().error(f"Unexpected error: {e}")
 
     def destroy_node(self):
-        # Clean up camera and system
+        self.running = False
+        self.thread.join()
         try:
             if self.cam is not None:
                 self.cam.UnregisterEventHandler(self.event_handler)

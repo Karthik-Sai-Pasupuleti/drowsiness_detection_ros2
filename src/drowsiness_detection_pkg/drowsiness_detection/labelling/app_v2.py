@@ -180,7 +180,7 @@ class RosBridge(Node):
     # --- ROS Data callbacks ---
     def cb_camera(self, msg):
         try:
-            cv_img = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+            cv_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
             self.data_manager.set_image(cv_img.copy())
         except Exception as e:
             self.get_logger().error(f"Camera error: {e}")

@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 
+"""
+ROS2 Node to play audio files.
+Subscribes to the /audio_file topic and plays the specified audio file using pygame.
+"""
+import threading
+import os
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 import pygame
-import threading
-import os
+
 
 
 class AudioPlayer:
@@ -16,7 +21,14 @@ class AudioPlayer:
         self.lock = threading.Lock()
 
     def play(self, file_path: str):
-        """Play an audio file in a non-blocking way."""
+        """Play an audio file.
+
+        Args:
+            file_path (str): The path to the audio file to play.
+
+        Returns:
+            bool: True if playback started successfully, False otherwise.
+        """
         if not os.path.isfile(file_path):
             print(f"[AudioPlayer] File does not exist: {file_path}")
             return False
@@ -50,6 +62,11 @@ class AudioPlayerNode(Node):
         )
 
     def audio_file_callback(self, msg: String):
+        """Callback function to handle incoming audio file path messages.
+
+        Args:
+            msg (String): The audio file path message.
+        """
         file_path = msg.data.strip()
         if not file_path:
             self.get_logger().warn("Received empty file path. Ignoring.")
@@ -63,6 +80,12 @@ class AudioPlayerNode(Node):
 
 
 def main(args=None):
+    """Main entry point for the Audio Player Node.
+
+    Args:
+        args : Defaults to None.
+    """
+
     rclpy.init(args=args)
     node = AudioPlayerNode()
     try:

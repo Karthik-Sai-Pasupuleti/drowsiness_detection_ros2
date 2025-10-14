@@ -44,6 +44,11 @@ class FanController(Node):
         self.off_timer = None
 
     def fan_speed_callback(self, msg: Int32):
+        """Callback function to handle incoming fan speed messages.
+
+        Args:
+            msg (Int32): The fan speed message.
+        """
         level = msg.data
         self.get_logger().info(f"Received fan speed: {level}")
         self.set_fan(level)
@@ -56,6 +61,11 @@ class FanController(Node):
         self.off_timer = self.create_timer(20.0, self.turn_off_fan)
 
     def set_fan(self, level: int):
+        """Set the fan speed.
+
+        Args:
+            level (int): The desired fan speed level (0-3).
+        """
         if level not in self.FAN_LEVELS:
             self.get_logger().warn(f"Invalid fan level: {level}")
             return
@@ -70,6 +80,8 @@ class FanController(Node):
             self.get_logger().error(f"Failed to write to serial: {e}")
 
     def turn_off_fan(self):
+        """Turn off the fan after finishing the desired duration.
+        """
         self.set_fan(0)
         self.get_logger().info("Fan turned off automatically after 20 seconds")
         if self.off_timer:
