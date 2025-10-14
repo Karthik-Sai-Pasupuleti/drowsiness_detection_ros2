@@ -12,7 +12,7 @@ import numpy as np
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
-from .utils import calculate_avg_ear, mouth_aspect_ratio
+from ..camera.utils import calculate_avg_ear, mouth_aspect_ratio
 import time
 from concurrent.futures import ThreadPoolExecutor
 
