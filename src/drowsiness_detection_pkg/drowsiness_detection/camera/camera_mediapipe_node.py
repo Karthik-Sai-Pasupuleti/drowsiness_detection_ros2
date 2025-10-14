@@ -40,18 +40,20 @@ class DeviceEventHandler(PySpin.DeviceEventHandler):
 
 
 class CameraMediapipeNode(Node):
+    """Camera node for Mediapipe processing.
+    """
     def __init__(self):
         super().__init__("camera_mediapipe_node")
 
-        # --- ROS publishers
+        # ROS publishers
         self.image_pub = self.create_publisher(Image, "/camera/image_raw", qos_profile_sensor_data)
         self.metrics_pub = self.create_publisher(EarMarValue, "/ear_mar", 10)
         self.bridge = CvBridge()
 
-        # --- Frame queue
+        # Frame queue
         self.frame_queue = Queue(maxsize=4)  # buffer max 4 frames
 
-        # --- Mediapipe setup
+        # Mediapipe setup
         base_options = python.BaseOptions(
             model_asset_path=r'/home/user/ros2_ws/src/models/face_landmarker.task',
             delegate=python.BaseOptions.Delegate.GPU
@@ -67,7 +69,7 @@ class CameraMediapipeNode(Node):
         self.target_width = 480
         self.target_height = 640
 
-        # --- PySpin camera setup
+        # PySpin camera setup
         self.system = PySpin.System.GetInstance()
         self.cameras = self.system.GetCameras()
         if not self.cameras.GetSize():
@@ -81,7 +83,7 @@ class CameraMediapipeNode(Node):
         self.event_handler = DeviceEventHandler()
         self.cam.RegisterEventHandler(self.event_handler)
 
-        # --- Threading
+        # Threading
         self.running = True
         self.prev_time = None
         self.camera_thread = threading.Thread(target=self.camera_loop, daemon=True)
@@ -89,15 +91,16 @@ class CameraMediapipeNode(Node):
         self.camera_thread.start()
         self.worker_thread.start()
 
-        # --- Keypoints for Mediapipe visualization
+        # Keypoints for Mediapipe visualization
         self.LEFT_EYE = [362, 380, 374, 263, 386, 385]
         self.RIGHT_EYE = [33, 159, 158, 133, 153, 145]
         self.MOUTH = [78, 81, 13, 311, 308, 402, 14, 178]
 
         self.get_logger().info("Camera + Mediapipe node started.")
 
-    # --- Camera acquisition thread
     def camera_loop(self):
+        """Camera acquisition loop.
+        """
         while self.running and rclpy.ok():
             try:
                 image_result = self.cam.GetNextImage()
@@ -130,27 +133,29 @@ class CameraMediapipeNode(Node):
             except Exception as e:
                 self.get_logger().error(f"Unexpected camera error: {e}")
 
-    # --- Worker thread: Mediapipe processing
     def worker_loop(self):
+        """Worker thread for Mediapipe processing.
+        """
         while self.running and rclpy.ok():
             frame = self.frame_queue.get()  # blocks until a frame is available
             self.process_frame(frame)
 
-    def process_frame(self, img_frame):
-        try:
-            start_time = time.time()  # <-- start timing for Mediapipe FPS
+    def process_frame(self, img_frame: np.ndarray):
+        """Process a single frame with Mediapipe to extract EAR and MAR.
 
-            # img_frame is already a NumPy array from PySpin
+        Args:
+            img_frame (np.ndarray): The input image frame.
+        """
+        try:
+            start_time = time.time()  
+
             frame = img_frame.copy()
 
-            # Handle IR input (grayscale)
             if len(frame.shape) == 2 or frame.shape[2] == 1:
                 frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
-            # Reduce resolution for faster inference
             frame = cv2.resize(frame, (self.target_width, self.target_height))
 
-            # Convert to RGB (Mediapipe expects RGB)
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
 
@@ -190,8 +195,13 @@ class CameraMediapipeNode(Node):
 
 
 
-    def draw_keypoints(self, frame, landmarks):
-        """Draw left eye, right eye, and mouth keypoints with colors."""
+    def draw_keypoints(self, frame: np.ndarray, landmarks: np.ndarray):
+        
+        """Draws keypoints on the frame for visualization.
+        Args:
+            frame (np.ndarray): The image frame to draw on.
+            landmarks (np.ndarray): The facial landmarks.
+        """
         h, w, _ = frame.shape
         for idx in self.LEFT_EYE:
             x, y = int(landmarks[idx][0] * w), int(landmarks[idx][1] * h)
@@ -204,6 +214,8 @@ class CameraMediapipeNode(Node):
             cv2.circle(frame, (x, y), 3, (0, 0, 255), -1)  # Red
 
     def destroy_node(self):
+        """Cleans up the node resources.
+        """
         self.running = False
         self.camera_thread.join()
         self.worker_thread.join()
