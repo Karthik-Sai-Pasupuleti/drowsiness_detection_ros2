@@ -130,3 +130,67 @@ Setup the rules by following steps:
 - Reload udev rules and trigger:
   - sudo udevadm control --reload-rules
   - sudo udevadm trigger
+
+
+## Ethernet Connection Setup to Access Flask Interface from Windows
+
+This section describes how to connect your Linux workstation hosting the Flask-based web interface with a Windows laptop over an Ethernet cable, enabling you to access the interface remotely.
+
+### Hardware Requirements
+- Ethernet cable connecting Linux and Windows machines directly or via a switch.
+
+### Step 1: Configure Static IP Addresses
+
+#### On Linux
+1. Identify your Ethernet interface name (e.g., `enp130s0`):
+```bash
+ip link show
+```
+
+2. Bring the interface up and assign a static IP:
+
+```bash
+sudo ip link set enp130s0 up
+sudo ip addr add 192.168.1.10/24 dev enp130s0
+```
+
+
+#### On Windows
+1. Open **Control Panel** → **Network and Internet** → **Network and Sharing Center**.
+2. Click **Change adapter settings** on the left panel.
+3. Right-click the Ethernet adapter and select **Properties**.
+4. Select **Internet Protocol Version 4 (TCP/IPv4)** and click **Properties**.
+5. Choose **Use the following IP address** and enter:
+- **IP address:** `192.168.1.20`
+- **Subnet mask:** `255.255.255.0`
+- Leave **Default gateway** blank.
+6. Click **OK** and close the dialogs.
+
+### Step 2: Adjust Ethernet Speed and Duplex in Windows (Optional but recommended)
+
+1. Open **Task Manager** (Ctrl + Shift + Esc).
+2. Go to the **Performance** tab and click **Ethernet**.
+3. Click on **Open Network & Internet settings** at the bottom.
+4. Under **Advanced network settings**, click **Change adapter options**.
+5. Right-click your Ethernet adapter → **Properties** → **Configure**.
+6. Go to the **Advanced** tab, find **Speed & Duplex** or similar property.
+7. Select an appropriate speed and duplex setting (e.g., `1.0 Gbps Full Duplex` or `100 Mbps Full Duplex`), or choose `Auto Negotiation`.
+8. Click **OK** to apply.
+
+### Step 3: Run Flask App on Linux Listening on All Interfaces
+Launch the labelling gui
+
+### Step 4: Allow Incoming Traffic on Linux Firewall
+Allow port 5000 through the firewall:
+
+```bash
+sudo ufw allow 5000/tcp
+```
+
+### Step 5: Access Flask Interface from Windows
+1. Open a web browser on Windows.
+2. Enter the Linux IP and Flask port in the address bar:
+
+```bash
+http://192.168.1.10:5000
+```

@@ -279,7 +279,7 @@ def prepare_labels_for_saving(labels):
     elif vf == "No":
         prepared["voice_feedback"] = 0
     else:
-        prepared["voice_feedback"] = 0  # safe default
+        prepared["voice_feedback"] = None  # safe default
 
     # Auto-submitted: convert bool → int
     prepared["auto_submitted"] = int(prepared.get("auto_submitted", 0))

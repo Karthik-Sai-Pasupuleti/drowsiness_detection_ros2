@@ -3,3 +3,8 @@ install/
 log/
 .vscode/
 *.swp
+
+__pycache__/
+*.pyc
+
+drowsiness_data/
