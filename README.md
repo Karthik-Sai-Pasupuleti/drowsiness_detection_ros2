@@ -192,5 +192,5 @@ sudo ufw allow 5000/tcp
 2. Enter the Linux IP and Flask port in the address bar:
 
 ```bash
-http://192.168.1.10:5000
+http://workstation_ip:5000
 ```
