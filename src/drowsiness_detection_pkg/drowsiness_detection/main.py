@@ -326,8 +326,10 @@ class DriverAssistanceNode(Node):
         # Robust fps for face streams
         fps_ear = robust_fps(list(ear_ts))
         fps_mar = robust_fps(list(mar_ts))
-        
-        self.get_logger().info(f"Window {self.current_window_id} - EAR FPS: {fps_ear:.2f}, MAR FPS: {fps_mar:.2f}")
+        steering_vals_fps = len(steering_vals)
+        lane_vals_fps = len(lane_vals)
+
+        self.get_logger().info(f"Window {self.current_window_id} - EAR FPS: {fps_ear:.2f}, MAR FPS: {fps_mar:.2f}, Steering FPS: {steering_vals_fps:.2f}, Lane FPS: {lane_vals_fps:.2f}")
         if fps_ear <= 0.0 or fps_mar <= 0.0:
             self.get_logger().warn(
                 f"Invalid fps (EAR={fps_ear:.3f}, MAR={fps_mar:.3f}) for window; skipping metrics."

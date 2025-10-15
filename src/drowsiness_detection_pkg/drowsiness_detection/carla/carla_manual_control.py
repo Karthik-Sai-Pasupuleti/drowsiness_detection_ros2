@@ -232,13 +232,13 @@ class World(object):
         # )
 
         allowed_vehicle_ids = [
-            "vehicle.dodge.charger_2020",
-            "vehicle.dodge.charger_police_2020",
-            "vehicle.lincoln.mkz_2017",
+            # "vehicle.dodge.charger_2020",
+            # "vehicle.dodge.charger_police_2020",
+            # "vehicle.lincoln.mkz_2017",
             "vehicle.mercedes.coupe_2020",
-            "vehicle.tesla.model3",
-            "vehicle.audi.tt",
-            "vehicle.ford.mustang",
+            # "vehicle.tesla.model3",
+            # "vehicle.audi.tt",
+            # "vehicle.ford.mustang",
         ]
 
         # Get the blueprint library
@@ -277,6 +277,7 @@ class World(object):
             self.player_max_speed_fast = float(
                 blueprint.get_attribute("speed").recommended_values[2]
             )
+        
 
         # Spawn the player.
         if self.player is not None:
@@ -390,15 +391,18 @@ class DualControl(Node):
         super().__init__("carla_control_node")
         # created the publisher with the same topic which is used in the carla default setting.
         self._ctrl_pub = self.create_publisher(
-            CarlaEgoVehicleControl, "/carla/hero/vehicle_control_cmd", 10
+            CarlaEgoVehicleControl, "/carla/hero/vehicle_control_cmd", 1
         )
         self.lane_offset_pub = self.create_publisher(
-            LanePosition, "carla/lane_offset", 10
+            LanePosition, "carla/lane_offset", 1
         )
         self._autopilot_enabled = start_in_autopilot
         if isinstance(world.player, carla.Vehicle):
             self._control = carla.VehicleControl()
             world.player.set_autopilot(self._autopilot_enabled)
+                            
+        
+    
         elif isinstance(world.player, carla.Walker):
             self._control = carla.WalkerControl()
             self._autopilot_enabled = False
@@ -430,13 +434,14 @@ class DualControl(Node):
         self._reverse_idx = int(self._parser.get("G29 Racing Wheel", "reverse"))
         self._handbrake_idx = int(self._parser.get("G29 Racing Wheel", "handbrake"))
 
-    def publish_lane_offset(self, lateral_offset):
-        """Publishes the lateral lane offset with the current ROS time."""
-        lane_msg = LanePosition()
-        # Use 'self' which refers to the Node instance for clock access
-        lane_msg.header.stamp = self.get_clock().now().to_msg()
-        lane_msg.lane_offset = float(lateral_offset)
-        self.lane_offset_pub.publish(lane_msg)
+
+    def enforce_speed_limit(self, current_speed, max_speed):
+        if current_speed > max_speed:
+            self._control.throttle = 0.0
+            self._control.brake = 0.3
+        else:
+            # Do nothing, keep current inputs
+            pass
 
     def parse_events(self, world, clock):
         for event in pygame.event.get():
@@ -515,17 +520,29 @@ class DualControl(Node):
             elif isinstance(self._control, carla.WalkerControl):
                 self._parse_walker_keys(pygame.key.get_pressed(), clock.get_time())
 
-            # publishing the controls to carla with ros
-            # world.player.apply_control(self._control)
-            ctrl_msg = CarlaEgoVehicleControl()
-            ctrl_msg.throttle = float(self._control.throttle)
-            ctrl_msg.steer = float(self._control.steer)
-            ctrl_msg.brake = float(self._control.brake)
-            ctrl_msg.hand_brake = bool(self._control.hand_brake)
-            ctrl_msg.reverse = bool(self._control.reverse)
-            ctrl_msg.manual_gear_shift = bool(self._control.manual_gear_shift)
-            ctrl_msg.gear = int(self._control.gear)
-            self._ctrl_pub.publish(ctrl_msg)
+
+    def publish_controls_and_lane(self, lateral_offset):
+        """Publish vehicle controls and lane offset with the same timestamp."""
+
+        # Create the control message
+        ctrl_msg = CarlaEgoVehicleControl()
+        ctrl_msg.steer = float(self._control.steer)
+        ctrl_msg.brake = float(self._control.brake)
+        ctrl_msg.hand_brake = bool(self._control.hand_brake)
+        ctrl_msg.reverse = bool(self._control.reverse)
+        ctrl_msg.manual_gear_shift = bool(self._control.manual_gear_shift)
+        ctrl_msg.gear = int(self._control.gear)
+        ctrl_msg.throttle = float(self._control.throttle)
+
+        # Create the lane offset message
+        lane_msg = LanePosition()
+        now = self.get_clock().now().to_msg()  # same timestamp for both
+        lane_msg.header.stamp = now
+        lane_msg.lane_offset = float(lateral_offset)
+
+        # Publish both messages
+        self._ctrl_pub.publish(ctrl_msg)
+        self.lane_offset_pub.publish(lane_msg)
 
     def _parse_vehicle_keys(self, keys, milliseconds):
         self._control.throttle = 1.0 if keys[K_UP] or keys[K_w] else 0.0
@@ -1044,9 +1061,9 @@ class CameraManager(object):
                         carla.Location(
                             x=0.0 * bound_x,  # move camera forward
                             y=0.0 * bound_y,  # centered
-                            z=1.3 * bound_z,  # higher above hood
+                            z=1.23 * bound_z,  # higher above hood
                         ),
-                        carla.Rotation(pitch=-3.0),  # slight upward view, shows road
+                        carla.Rotation(pitch=-4.0),  # slight upward view, shows road
                     ),
                     Attachment.Rigid,
                 ),
@@ -1056,7 +1073,7 @@ class CameraManager(object):
                         carla.Location(x=-7.0, y=0.0, z=2.8),  # make sure y is defined
                         carla.Rotation(pitch=-15),
                     ),
-                    Attachment.Rigid,  # added missing attachment
+                    Attachment.Rigid,  
                 ),
             ]
 
@@ -1064,7 +1081,7 @@ class CameraManager(object):
             self._camera_transforms = [
                 (
                     carla.Transform(
-                        carla.Location(x=-5.5, z=2.8), carla.Rotation(pitch=-15.0)
+                        carla.Location(x=-9, z=2.8), carla.Rotation(pitch=-15.0)
                     ),
                     Attachment.SpringArmGhost,
                 ),
@@ -1334,8 +1351,18 @@ def game_loop(args):
             rclpy.spin_once(controller, timeout_sec=0)
             world.tick(clock)
             world.render(display)
+            
+            # speed limit enforcement
+            vehicle = world.player
+            v = vehicle.get_velocity()
+            # setting speed limit
+            player_max_speed = 90  # 25 m/s = 90 km/h
+            speed = 3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2)
+            
+            controller.enforce_speed_limit(speed, player_max_speed)
+                
             _, lateral_offset = collect_carla_data(world)
-            controller.publish_lane_offset(lateral_offset)
+            controller.publish_controls_and_lane(lateral_offset)
             pygame.display.flip()
 
     finally:
