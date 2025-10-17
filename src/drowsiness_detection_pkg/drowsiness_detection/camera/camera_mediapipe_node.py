@@ -170,7 +170,9 @@ class CameraMediapipeNode(Node):
             self.metrics_pub.publish(ear_mar_msg)
 
             # Publish annotated frame
-            img_msg = self.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
+            resized_frame = cv2.resize(frame, (256, 256), interpolation=cv2.INTER_AREA)
+
+            img_msg = self.bridge.cv2_to_imgmsg(resized_frame, encoding="bgr8")
             img_msg.header.stamp = self.get_clock().now().to_msg()
             img_msg.header.frame_id = "camera_optical_frame"
             self.image_pub.publish(img_msg)

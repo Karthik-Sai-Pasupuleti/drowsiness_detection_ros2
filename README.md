@@ -184,13 +184,26 @@ Launch the labelling gui
 Allow port 5000 through the firewall:
 
 ```bash
-sudo ufw allow 5000/tcp
+sudo ip addr add 192.168.0.10/24 dev enp130s0 
+sudo ip link set enp130s0 up
 ```
+Check the ip in linux workstation
+```bash
+ip addr show
+ping 192.168.0.10
+```
+
+Same goes for windows too
+```bash
+ping 192.168.0.10
+```
+if it failed then update the ip address in windows network settings.
+
 
 ### Step 5: Access Flask Interface from Windows
 1. Open a web browser on Windows.
 2. Enter the Linux IP and Flask port in the address bar:
 
 ```bash
-http://workstation_ip:5000
+http://192.168.1.10:5000
 ```

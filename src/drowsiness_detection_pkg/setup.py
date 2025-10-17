@@ -8,7 +8,7 @@ setup(
     name=package_name,
     version="0.0.0",
     packages=find_packages(exclude=["test"]),
-    include_package_data=True,  # important to include package_data
+    include_package_data=True,
     package_data={
         "drowsiness_detection_pkg.carla": ["wheel_config.ini"],
     },
@@ -23,6 +23,14 @@ setup(
                 "drowsiness_detection/bot/configs/schema.json",
             ],
         ),
+        (
+            os.path.join("share", package_name, "templates"),
+            glob("drowsiness_detection/labelling/templates/*.html"),
+        ),
+        (
+            os.path.join("share", package_name, "static"),
+            glob("drowsiness_detection/labelling/static/**/*", recursive=True),
+        ),
     ],
     install_requires=[
         "setuptools",
@@ -32,11 +40,8 @@ setup(
     maintainer_email="user@todo.todo",
     description="Driver assistance package for drowsiness detection",
     license="TODO: License declaration",
-    # tests_require=["pytest"],
     entry_points={
         "console_scripts": [
-            # "camera_node = drowsiness_detection.camera.camera_node:main",
-            # "mediapipe_node = drowsiness_detection.camera.mediapipe_node:main",
             "mediapipe_node = drowsiness_detection.camera.camera_mediapipe_node:main",
             "carla_node = drowsiness_detection.carla.carla_manual_control:main",
             "driver_assistance_node = drowsiness_detection.main:main",

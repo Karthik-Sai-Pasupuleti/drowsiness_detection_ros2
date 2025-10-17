@@ -19,11 +19,7 @@ from drowsiness_detection_msg.msg import (
     EarMarValue,
     LanePosition,
     DrowsinessMetricsData,
-    AnnotatorLabels, 
-    CombinedAnnotations
 )
-
-from drowsiness_detection_msg.srv import StoreLabels
 
 from ament_index_python.packages import get_package_share_directory
 
@@ -36,94 +32,9 @@ from drowsiness_detection.camera.utils import (
     vehicle_feature_extraction,
 )
 
-import time
 import cv2
 import numpy as np
 from cv_bridge import CvBridge
-
-
-import os
-import csv
-import cv2
-import numpy as np
-import json
-import csv
-import os
-
-def save_to_csv_and_video(window_id, window_data, labels_dict, driver_id="driver_1"):
-    """
-    Append metrics and labels for each window to a CSV.
-    Dynamically adds new annotator columns when new annotators appear.
-    Saves results in: drowsiness_data/<driver_id>/session_metrics.csv
-    """
-    base_folder = "drowsiness_data"
-    driver_folder = os.path.join(base_folder, driver_id)
-    os.makedirs(driver_folder, exist_ok=True)
-
-    # CSV path inside driver-specific folder
-    csv_path = os.path.join(driver_folder, "session_metrics.csv")
-
-    # --- Prepare base metric data ---
-    row = {
-        "window_id": window_id,
-        "video": f"window_{window_id}.mp4",
-        "metric_PERCLOS": window_data["metrics"]["PERCLOS"],
-        "metric_BlinkRate": window_data["metrics"]["BlinkRate"],
-        "metric_YawnRate": window_data["metrics"]["YawnRate"],
-        "metric_Entropy": window_data["metrics"]["Entropy"],
-        "metric_SteeringRate": window_data["metrics"]["SteeringRate"],
-        "metric_SDLP": window_data["metrics"]["SDLP"],
-        "raw_ear": str(window_data["raw_data"]["ear"]),
-        "raw_mar": str(window_data["raw_data"]["mar"]),
-        "raw_steering": str(window_data["raw_data"]["steering"]),
-        "raw_lane": str(window_data["raw_data"]["lane"]),
-    }
-
-    # --- Add labels dynamically ---
-    for annotator, lbl in labels_dict.items():
-        prefix = annotator.replace(" ", "_")  # safe column prefix
-        row[f"{prefix}_drowsiness_level"] = lbl.get("drowsiness_level", "")
-        row[f"{prefix}_actions"] = json.dumps(lbl.get("actions", []))
-        row[f"{prefix}_notes"] = lbl.get("notes", "")
-        row[f"{prefix}_voice_feedback"] = lbl.get("voice_feedback", "")
-        row[f"{prefix}_submission_type"] = lbl.get("submission_type", "")
-        row[f"{prefix}_auto_submitted"] = lbl.get("auto_submitted", "")
-        row[f"{prefix}_is_flagged"] = lbl.get("is_flagged", "")
-
-    # --- Dynamic column management ---
-    if not os.path.exists(csv_path):
-        # First run → create new file with header
-        with open(csv_path, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=list(row.keys()))
-            writer.writeheader()
-            writer.writerow(row)
-        print(f"[CSV] Created new session file: {csv_path}")
-        print(f"[CSV] Added annotators: {list(labels_dict.keys())}")
-    else:
-        # File exists → detect new columns
-        with open(csv_path, "r", newline="") as f:
-            reader = csv.DictReader(f)
-            existing_fields = reader.fieldnames or []
-            existing_rows = list(reader)
-
-        new_fields = [f for f in row.keys() if f not in existing_fields]
-        if new_fields:
-            print(f"[CSV] New annotator columns detected: {new_fields}")
-            all_fields = existing_fields + new_fields
-
-            # Rewrite with updated header
-            with open(csv_path, "w", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=all_fields)
-                writer.writeheader()
-                writer.writerows(existing_rows)
-                writer.writerow(row)
-        else:
-            # Just append new row
-            with open(csv_path, "a", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=existing_fields)
-                writer.writerow(row)
-
-        print(f"[CSV] Saved window {window_id} (annotators={list(labels_dict.keys())})")
 
 
 class DriverAssistanceNode(Node):
@@ -187,24 +98,7 @@ class DriverAssistanceNode(Node):
         self.create_subscription(
             Image, "/camera/image_raw", self.cb_camera, qos_profile_sensor_data
         )
-        self.create_subscription(
-            CombinedAnnotations,
-            "/driver_assistance/combined_annotations",
-            self.combined_annotations_callback,
-            10,
-        )
-        
-        
-        self.store_labels_srv = self.create_service(
-            StoreLabels,
-            "store_labels",
-            self.handle_store_labels,
-        )
-        self.get_logger().info("Service 'store_labels' ready to receive labels.")
-        
-        self.combined_annotations = {}
-        
-     
+
         # ---------- Publishers ----------
 
         # Phase/ID/remaining time
@@ -219,75 +113,6 @@ class DriverAssistanceNode(Node):
         # ---------- Timer ----------
         self.create_timer(0.1, self.update_window_phase)
         self.get_logger().info("Driver Assistance Node started.")
-        
-        
-    def combined_annotations_callback(self, msg: CombinedAnnotations):
-        """Store CombinedAnnotations received from the Flask backend."""
-        with self.buffer_lock:
-            self.combined_annotations[msg.window_id] = msg
-        self.get_logger().info(
-            f"Received CombinedAnnotations for window {msg.window_id} "
-            f"({len(msg.annotator_labels)} annotators, flagged={msg.is_flagged})"
-        )
-    
-    def handle_store_labels(self, request, response):
-        """Store labels received via service and merge with metrics if ready."""
-        window_id = request.window_id
-        self.get_logger().info(
-            f"Service received {len(request.annotator_labels)} labels for window {window_id}"
-        )
-
-        combined = CombinedAnnotations()
-        combined.window_id = window_id
-        combined.annotator_labels = list(request.annotator_labels)
-        combined.is_flagged = False
-
-        with self.buffer_lock:
-            self.combined_annotations[window_id] = combined
-
-        # Try merge immediately if metrics already ready
-        self.try_merge_and_save(window_id)
-
-        response.success = True
-        response.message = f"Stored labels for window {window_id}"
-        return response
-
-    def try_merge_and_save(self, window_id: int):
-        """If both metrics and labels for a window exist, merge and write to CSV/video."""
-        with self.buffer_lock:
-            if not hasattr(self, "pending_metrics"):
-                self.pending_metrics = {}
-            if (
-                window_id not in self.pending_metrics
-                or window_id not in self.combined_annotations
-            ):
-                return  # not ready yet
-
-            window_data = self.pending_metrics.pop(window_id)
-            combined = self.combined_annotations.pop(window_id)
-
-        labels_dict = {}
-        for ann in combined.annotator_labels:
-            labels_dict[ann.annotator_name] = {
-                "drowsiness_level": ann.drowsiness_level,
-                "actions": list(ann.actions),
-                "notes": ann.notes,
-                "voice_feedback": ann.voice_feedback,
-                "submission_type": ann.submission_type,
-                "auto_submitted": ann.auto_submitted,
-                "is_flagged": ann.is_flagged,
-            }
-
-        save_to_csv_and_video(
-            window_id=window_id,
-            window_data=window_data,
-            labels_dict=labels_dict,
-            driver_id="driver_1",
-        )
-        self.get_logger().info(
-            f"[MERGE] Saved window {window_id} with metrics + {len(labels_dict)} annotator labels."
-        )
-
 
     def cb_camera(self, msg: Image):
         try:
@@ -349,37 +174,45 @@ class DriverAssistanceNode(Node):
             self.process_completed_window()
 
     def process_completed_window(self):
-        """Triggered when a 60s window ends — compute metrics and store for later merge."""
+        """
+        Process the just-finished window.
+        Defines window as [start, end) in ROS time; prunes buffers by time (keep t >= end).
+        """
         window_start_time = self.last_window_end_time
         end_time = window_start_time + self.window_duration
-        window_id = self.current_window_id
 
-        self.get_logger().info(f"Window {window_id} complete. Computing metrics...")
+        self.get_logger().info(
+            f"Window {self.current_window_id} complete. Publishing data for saving."
+        )
 
-        window_data = self.compute_metrics(window_start_time)
-        if window_data is None:
-            self.get_logger().warn(f"Skipping save for window {window_id}: no valid data.")
-        else:
-            # Store metrics until matching labels arrive
-            with self.buffer_lock:
-                if not hasattr(self, "pending_metrics"):
-                    self.pending_metrics = {}
-                self.pending_metrics[window_id] = window_data
+        self.compute_metrics(window_start_time)
 
-            # Try to save if labels already arrived
-            self.try_merge_and_save(window_id)
-
-        # ---- Prune old buffers ----
+        # ---- Time-based pruning: keep samples for next window (t >= end_time) ----
         with self.buffer_lock:
-            self.ear_buffer = deque([(t, v) for t, v in self.ear_buffer if t >= end_time])
-            self.mar_buffer = deque([(t, v) for t, v in self.mar_buffer if t >= end_time])
-            self.steering_buffer = deque([(t, v) for t, v in self.steering_buffer if t >= end_time])
-            self.lane_offset_buffer = deque([(t, v) for t, v in self.lane_offset_buffer if t >= end_time])
-            self.image_buffer = deque([(t, img) for t, img in self.image_buffer if t >= end_time])
+            self.ear_buffer = deque(
+                [(t, v) for t, v in self.ear_buffer if t >= end_time],
+                maxlen=self.ear_buffer.maxlen,
+            )
+            self.mar_buffer = deque(
+                [(t, v) for t, v in self.mar_buffer if t >= end_time],
+                maxlen=self.mar_buffer.maxlen,
+            )
+            self.steering_buffer = deque(
+                [(t, v) for t, v in self.steering_buffer if t >= end_time],
+                maxlen=self.steering_buffer.maxlen,
+            )
+            self.lane_offset_buffer = deque(
+                [(t, v) for t, v in self.lane_offset_buffer if t >= end_time],
+                maxlen=self.lane_offset_buffer.maxlen,
+            )
+            self.image_buffer = deque(
+                [(t, img) for t, img in self.image_buffer if t >= end_time],
+                maxlen=self.image_buffer.maxlen,
+            )
 
+        # Advance exact window boundaries (prevents drift)
         self.current_window_id += 1
         self.last_window_end_time = end_time
-
 
     def sample_images_as_ros(
         self, image_samples, window_start_time, end_time, num_samples=5
@@ -424,15 +257,7 @@ class DriverAssistanceNode(Node):
         end_time = window_start_time + self.window_duration
 
         # --- Helper: FPS from timestamps (median Δt) ---
-        def robust_fps(ts):
-            if len(ts) < 2:
-                return 0.0
-            dts = [ts[i + 1] - ts[i] for i in range(len(ts) - 1) if ts[i + 1] > ts[i]]
-            if not dts:
-                return 0.0
-            dts.sort()
-            med_dt = dts[len(dts) // 2]
-            return 1.0 / med_dt if med_dt > 0 else 0.0
+        
 
         # ---- Slice buffers with [start, end) and keep timestamps ----
         with self.buffer_lock:
@@ -531,35 +356,36 @@ class DriverAssistanceNode(Node):
             image_samples, window_start_time, end_time
         )
 
+        # ---- Build custom message ----
+        out_msg = DrowsinessMetricsData()
+        out_msg.header.stamp = self.get_clock().now().to_msg()
+        out_msg.metrics = [
+            float(perclos or 0.0),
+            float(blink_rate or 0.0),
+            float(yawn_rate or 0.0),
+            float(entropy or 0.0),
+            float(steering_rate or 0.0),
+            float(sdlp or 0.0),
+        ]
+
+        out_msg.ear_array = ear_vals
+        out_msg.mar_array = mar_vals
+        out_msg.steering_array = steering_vals
+        out_msg.lane_position_array = lane_vals
+        out_msg.window_id = self.current_window_id
+        # adding images as compressed jpg
+        for jpg_bytes in sampled_ros_images:
+            ros_img = CompressedImage()
+            ros_img.format = "jpeg"
+            ros_img.data = jpg_bytes
+            out_msg.images.append(ros_img)
+
+        # ---- Publish ----
+        self.window_data_pub.publish(out_msg)
 
         self.get_logger().info(
             f"Window {self.current_window_id} metrics published with {len(sampled_ros_images)} images."
         )
-        
-        metrics = {
-            "PERCLOS": float(perclos or 0.0),
-            "BlinkRate": float(blink_rate or 0.0),
-            "YawnRate": float(yawn_rate or 0.0),
-            "Entropy": float(entropy or 0.0),
-            "SteeringRate": float(steering_rate or 0.0),
-            "SDLP": float(sdlp or 0.0),
-        }
-
-        raw_data = {
-            "ear": ear_vals,
-            "mar": mar_vals,
-            "steering": steering_vals,
-            "lane": lane_vals,
-        }
-
-        window_data = {
-            "metrics": metrics,
-            "raw_data": raw_data,
-            "images": sampled_ros_images,
-        }
-
-        return window_data
-
 
 
 def main(args=None):

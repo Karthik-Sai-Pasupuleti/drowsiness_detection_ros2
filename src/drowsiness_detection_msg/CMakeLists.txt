@@ -18,6 +18,9 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 "msg/LanePosition.msg"
 "msg/DrowsinessMetricsData.msg"
 "msg/Vibration.msg"
+"msg/CombinedAnnotations.msg"
+"msg/AnnotatorLabels.msg"
+"srv/StoreLabels.srv"    
 
 DEPENDENCIES std_msgs sensor_msgs
 

@@ -136,16 +136,21 @@
     </div>
 
     <div class="groupbox">
+        <label>Notes</label>
+        <textarea id="notes"></textarea>
+    </div>
+
+    <div class="groupbox">
         <label>Actions</label>
         <button class="action_btn" data-action="Fan">Fan</button>
         <button class="action_btn" data-action="Voice Command" id="voice_command_btn">Voice Command</button>
         <button class="action_btn" data-action="Steering Vibration">Steering Vibration</button>
 
         <div id="voice_command_options" style="margin-top: 10px;">
-        <label>Voice Command Feedback</label>
-        <button class="voice_feedback_btn" data-feedback="Yes">Yes</button>
-        <button class="voice_feedback_btn" data-feedback="No">No</button>
-    </div>
+            <label>Voice Command Feedback</label>
+            <button class="voice_feedback_btn" data-feedback="Yes">Yes</button>
+            <button class="voice_feedback_btn" data-feedback="No">No</button>
+        </div>
     </div>
 
     <div class="groupbox">
@@ -153,10 +158,7 @@
         <input type="text" id="annotator_name" placeholder="Enter your name"/>
     </div>
 
-    <div class="groupbox">
-        <label>Notes</label>
-        <textarea id="notes"></textarea>
-    </div>
+
     <button id="submit_btn" disabled>Submit</button>
     <p id="status-message" style="font-style: italic; color: #6c757d;"></p>
 </div>
@@ -266,7 +268,7 @@ function resetLabelingUI() {
     selectedDrowsiness = null;
     selectedActions.clear();
     selectedVoiceFeedback = null;
-    voiceCommandOptions.style.display = 'none';
+    // voiceCommandOptions.style.display = 'none'; // REMOVED: Keep it visible
 
     document.getElementById('notes').value = "";
 }
@@ -303,7 +305,6 @@ function updatePlots(data){
     updateChart(steeringChart, data.live_steering, 'Steering Angle', 0.1);
 }
 
-// ----------- Button Handlers (MODIFIED) -----------
 document.querySelectorAll('.drowsiness_btn').forEach(btn => {
     btn.addEventListener('click', () => {
         if(btn.disabled) return;
@@ -313,6 +314,7 @@ document.querySelectorAll('.drowsiness_btn').forEach(btn => {
     });
 });
 
+
 document.querySelectorAll('.action_btn').forEach(btn => {
     btn.addEventListener('click', () => {
         if(btn.disabled) return;
@@ -321,20 +323,9 @@ document.querySelectorAll('.action_btn').forEach(btn => {
 
         if (isSelected) {
             selectedActions.add(action);
-            activateAction(action); // <--- NEW: Call the action activation function
+            activateAction(action);
         } else {
             selectedActions.delete(action);
-            // Optional: send a deactivation command if applicable
-        }
-
-        if (action === 'Voice Command') {
-            if (isSelected) {
-                voiceCommandOptions.style.display = 'block';
-            } else {
-                voiceCommandOptions.style.display = 'none';
-                document.querySelectorAll('.voice_feedback_btn').forEach(b => b.classList.remove('selected'));
-                selectedVoiceFeedback = null;
-            }
         }
     });
 });
@@ -344,7 +335,7 @@ document.querySelectorAll('.voice_feedback_btn').forEach(btn => {
         document.querySelectorAll('.voice_feedback_btn').forEach(b => b.classList.remove('selected'));
         btn.classList.add('selected');
         selectedVoiceFeedback = btn.dataset.feedback;
-        activateAction('Voice Feedback', selectedVoiceFeedback); // <--- NEW: Send feedback to backend
+        activateAction('Voice Feedback', selectedVoiceFeedback);
     });
 });
 
@@ -367,11 +358,6 @@ async function submitLabels(){
         return;
     }
 
-    if (selectedActions.has('Voice Command') && !selectedVoiceFeedback) {
-        showNotification("Please select a 'Yes' or 'No' for Voice Command feedback.", true);
-        return;
-    }
-
     // Convert Set to Array
     const actionsToSubmit = Array.from(selectedActions);
 
@@ -388,7 +374,8 @@ async function submitLabels(){
                 drowsiness_level: drowsiness_level,
                 actions: actionsToSubmit,
                 notes: notes,
-                voice_feedback: selectedVoiceFeedback
+                // Submit the selected voice feedback value, which is null if no button was clicked.
+                voice_feedback: selectedVoiceFeedback 
             })
         });
         const data = await res.json();
@@ -422,7 +409,7 @@ async function storeSelectedLabels() {
                 drowsiness_level: selectedDrowsiness,
                 actions: actionsToStore,
                 notes: notes,
-                voice_feedback: selectedVoiceFeedback // <--- NEW: Send voice feedback as a separate key
+                voice_feedback: selectedActions.has('Voice Command') ? selectedVoiceFeedback : null
             })
         });
     } catch (error) {
