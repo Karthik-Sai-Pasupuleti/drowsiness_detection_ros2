@@ -50,7 +50,8 @@ import json
 import csv
 import os
 
-def save_to_csv_and_video(window_id, window_data, labels_dict, driver_id="driver_1"):
+
+def save_to_csv(window_id, window_data, labels_dict, driver_id="driver_1"):
     """
     Append metrics and labels for each window to a CSV.
     Dynamically adds new annotator columns when new annotators appear.
@@ -60,7 +61,6 @@ def save_to_csv_and_video(window_id, window_data, labels_dict, driver_id="driver
     driver_folder = os.path.join(base_folder, driver_id)
     os.makedirs(driver_folder, exist_ok=True)
 
-    # CSV path inside driver-specific folder
     csv_path = os.path.join(driver_folder, "session_metrics.csv")
 
     # --- Prepare base metric data ---
@@ -79,20 +79,24 @@ def save_to_csv_and_video(window_id, window_data, labels_dict, driver_id="driver
         "raw_lane": str(window_data["raw_data"]["lane"]),
     }
 
-    # --- Add labels dynamically ---
+    # --- Add labels dynamically (per annotator, with separate action flags) ---
     for annotator, lbl in labels_dict.items():
         prefix = annotator.replace(" ", "_")  # safe column prefix
         row[f"{prefix}_drowsiness_level"] = lbl.get("drowsiness_level", "")
-        row[f"{prefix}_actions"] = json.dumps(lbl.get("actions", []))
         row[f"{prefix}_notes"] = lbl.get("notes", "")
         row[f"{prefix}_voice_feedback"] = lbl.get("voice_feedback", "")
         row[f"{prefix}_submission_type"] = lbl.get("submission_type", "")
         row[f"{prefix}_auto_submitted"] = lbl.get("auto_submitted", "")
         row[f"{prefix}_is_flagged"] = lbl.get("is_flagged", "")
 
+        # Separate action flags (booleans/ints)
+        row[f"{prefix}_action_fan"] = int(bool(lbl.get("action_fan", False)))
+        row[f"{prefix}_action_voice_command"] = int(bool(lbl.get("action_voice_command", False)))
+        row[f"{prefix}_action_steering_vibration"] = int(bool(lbl.get("action_steering_vibration", False)))
+        row[f"{prefix}_action_save_video"] = int(bool(lbl.get("action_save_video", False)))
+
     # --- Dynamic column management ---
     if not os.path.exists(csv_path):
-        # First run → create new file with header
         with open(csv_path, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=list(row.keys()))
             writer.writeheader()
@@ -100,7 +104,6 @@ def save_to_csv_and_video(window_id, window_data, labels_dict, driver_id="driver
         print(f"[CSV] Created new session file: {csv_path}")
         print(f"[CSV] Added annotators: {list(labels_dict.keys())}")
     else:
-        # File exists → detect new columns
         with open(csv_path, "r", newline="") as f:
             reader = csv.DictReader(f)
             existing_fields = reader.fieldnames or []
@@ -110,15 +113,12 @@ def save_to_csv_and_video(window_id, window_data, labels_dict, driver_id="driver
         if new_fields:
             print(f"[CSV] New annotator columns detected: {new_fields}")
             all_fields = existing_fields + new_fields
-
-            # Rewrite with updated header
             with open(csv_path, "w", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=all_fields)
                 writer.writeheader()
                 writer.writerows(existing_rows)
                 writer.writerow(row)
         else:
-            # Just append new row
             with open(csv_path, "a", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=existing_fields)
                 writer.writerow(row)
@@ -204,6 +204,12 @@ class DriverAssistanceNode(Node):
         
         self.combined_annotations = {}
         
+        
+        self.video_writer = None
+        self.current_video_path = None
+        self.video_base_dir = os.path.join("drowsiness_data", "driver_1", "videos")
+        os.makedirs(self.video_base_dir, exist_ok=True)
+
      
         # ---------- Publishers ----------
 
@@ -245,15 +251,48 @@ class DriverAssistanceNode(Node):
         with self.buffer_lock:
             self.combined_annotations[window_id] = combined
 
-        # Try merge immediately if metrics already ready
+        # Try merge immediately if metrics already ready (conflict/video decision happens there)
         self.try_merge_and_save(window_id)
 
         response.success = True
         response.message = f"Stored labels for window {window_id}"
         return response
 
+        
+    def save_video_segment(self, window_id, output_path):
+        """
+        Save frames corresponding to the given window from the image_buffer to a video file.
+        """
+        try:
+            # Determine window time range
+            window_end_time = self.last_window_end_time
+            window_start_time = window_end_time - self.window_duration
+
+            # Extract frames belonging to that window
+            with self.buffer_lock:
+                frames = [img for (ts, img) in self.image_buffer if window_start_time <= ts < window_end_time]
+
+            if not frames:
+                self.get_logger().warn(f"[VIDEO] No frames found for window {window_id}, skipping save.")
+                return
+
+            height, width, _ = frames[0].shape
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+            out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), 30, (width, height))
+            for frame in frames:
+                out.write(frame)
+            out.release()
+
+            self.get_logger().info(f"[VIDEO] Segment saved for window {window_id}: {output_path}")
+
+        except Exception as e:
+            self.get_logger().error(f"[VIDEO ERROR] Failed to save video for window {window_id}: {e}")
+
+
+
     def try_merge_and_save(self, window_id: int):
-        """If both metrics and labels for a window exist, merge and write to CSV/video."""
+        """If both metrics and labels for a window exist, merge and write to CSV; conditionally save video."""
         with self.buffer_lock:
             if not hasattr(self, "pending_metrics"):
                 self.pending_metrics = {}
@@ -266,24 +305,51 @@ class DriverAssistanceNode(Node):
             window_data = self.pending_metrics.pop(window_id)
             combined = self.combined_annotations.pop(window_id)
 
+        # --- Build per-annotator label dictionary ---
         labels_dict = {}
+        drowsiness_levels = []
+        save_video_requested = False
+
         for ann in combined.annotator_labels:
+            drowsiness_levels.append(ann.drowsiness_level or "")
+            if ann.action_save_video:
+                save_video_requested = True
+
             labels_dict[ann.annotator_name] = {
                 "drowsiness_level": ann.drowsiness_level,
-                "actions": list(ann.actions),
                 "notes": ann.notes,
                 "voice_feedback": ann.voice_feedback,
                 "submission_type": ann.submission_type,
                 "auto_submitted": ann.auto_submitted,
                 "is_flagged": ann.is_flagged,
+                # Separate action flags
+                "action_fan": ann.action_fan,
+                "action_voice_command": ann.action_voice_command,
+                "action_steering_vibration": ann.action_steering_vibration,
+                "action_save_video": ann.action_save_video,
             }
 
-        save_to_csv_and_video(
-            window_id=window_id,
-            window_data=window_data,
-            labels_dict=labels_dict,
-            driver_id="driver_1",
-        )
+        # --- Conflict detection ---
+        conflict = len({lvl for lvl in drowsiness_levels if lvl}) > 1
+
+        # --- Always save CSV ---
+        save_to_csv(window_id=window_id, window_data=window_data, labels_dict=labels_dict, driver_id="driver_1")
+
+        # --- Conditional video saving (conflict OR any annotator clicked Save Video) ---
+        if conflict or save_video_requested:
+            # Save video inside same driver folder as CSV
+            base_folder = "drowsiness_data"
+            driver_folder = os.path.join(base_folder, "driver_1", "videos")
+            os.makedirs(driver_folder, exist_ok=True)
+            video_filename = os.path.join(driver_folder, f"window_{window_id}.mp4")
+
+            try:
+                self.save_video_segment(window_id, video_filename)
+                reason = "conflict" if conflict else "manual request"
+                self.get_logger().warn(f"[VIDEO] Saved video for window {window_id} (reason: {reason})")
+            except Exception as e:
+                self.get_logger().error(f"[VIDEO ERROR] Failed to save video for window {window_id}: {e}")
+
         self.get_logger().info(
             f"[MERGE] Saved window {window_id} with metrics + {len(labels_dict)} annotator labels."
         )

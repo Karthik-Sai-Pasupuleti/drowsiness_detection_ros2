@@ -207,3 +207,8 @@ if it failed then update the ip address in windows network settings.
 ```bash
 http://192.168.1.10:5000
 ```
+
+
+colcon build --symlink-install
+
+source install/setup.bash

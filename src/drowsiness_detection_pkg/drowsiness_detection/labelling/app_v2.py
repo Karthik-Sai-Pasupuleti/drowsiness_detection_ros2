@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 
 """
-This version contains a interface with voice command feedback button.
-
-This module implements a web application for real-time drowsiness detection labelling.
+This version implements a web application for real-time drowsiness detection labelling.
 It uses Flask for the web interface and ROS2 for data communication.
 The application allows multiple annotators to label drowsiness levels and actions,
 with support for auto-submission of previous labels if no new input is provided.
+It also includes tracking for the 'Save Video' action.
 """
 from waitress import serve
 
@@ -221,7 +220,7 @@ class RosBridge(Node):
             self.publish_combined_annotations(window_id)
 
 
-
+    # MODIFIED: Logic updated to handle auto-submission and key presence
     def publish_combined_annotations(self, window_id: int):
         """Combine annotator labels and send them to DriverAssistanceNode via StoreLabels service."""
         try:
@@ -249,35 +248,62 @@ class RosBridge(Node):
                 for annotator in annotators:
                     if annotator in self.data_manager.selected_labels_buffer:
                         labels_to_use = deepcopy(self.data_manager.selected_labels_buffer[annotator])
-                        submission_type = "manual"
-                        self.data_manager.last_submitted_labels[annotator] = labels_to_use
-                        del self.data_manager.selected_labels_buffer[annotator]
-                    else:
-                        if annotator in self.data_manager.last_submitted_labels:
-                            labels_to_use = deepcopy(self.data_manager.last_submitted_labels[annotator])
-                            submission_type = "auto"
-                            labels_to_use["auto_submitted"] = True
+
+                        # Check if annotator actually labeled something meaningful
+                        is_empty_label = (
+                            (not labels_to_use.get("drowsiness_level")) or labels_to_use["drowsiness_level"] in [None, "", "None"]
+                        ) and not labels_to_use.get("actions") and not labels_to_use.get("notes")
+
+                        if is_empty_label:
+                            # Treat as auto-submission: use last submitted label instead
+                            if annotator in self.data_manager.last_submitted_labels:
+                                labels_to_use = deepcopy(self.data_manager.last_submitted_labels[annotator])
+                                labels_to_use["auto_submitted"] = True
+                                submission_type = "auto"
+                            else:
+                                # No previous label, fallback to defaults
+                                labels_to_use = {
+                                    "drowsiness_level": "None",
+                                    "actions": [],
+                                    "notes": "Auto-submitted: annotator inactive.",
+                                    "auto_submitted": True,
+                                    "voice_feedback": None,
+                                    "video_save_requested": False,
+                                }
+                                submission_type = "auto"
                         else:
-                            labels_to_use = {
-                                "drowsiness_level": "None",
-                                "actions": [],
-                                "notes": "Auto-submitted: no previous label.",
-                                "auto_submitted": True,
-                            }
-                            submission_type = "auto"
+                            # Real manual input
+                            submission_type = "manual"
+                            labels_to_use["auto_submitted"] = False
+                            self.data_manager.last_submitted_labels[annotator] = deepcopy(labels_to_use)
+
+                        # Clean up buffer
+                        del self.data_manager.selected_labels_buffer[annotator]
 
                     labels_to_use["submission_type"] = submission_type
                     labels_prepared = prepare_labels_for_saving(labels_to_use)
 
                     ann_msg = AnnotatorLabels()
                     ann_msg.annotator_name = annotator
-                    ann_msg.drowsiness_level = labels_prepared.get("drowsiness_level", "None")
+                    # FIX: Explicitly convert to string to meet ROS message requirements
+                    ann_msg.drowsiness_level = str(labels_prepared.get("drowsiness_level", "None"))
                     ann_msg.actions = labels_to_use.get("actions", [])
                     ann_msg.notes = labels_prepared.get("notes", "")
                     ann_msg.voice_feedback = str(labels_prepared.get("voice_feedback", ""))
-                    ann_msg.submission_type = labels_prepared.get("submission_type", "auto")
+                    
+                    # FIX 1: Use the correctly determined string variable 'submission_type'
+                    ann_msg.submission_type = submission_type 
+                    
+                    # FIX 2: Ensure auto_submitted is correctly extracted
                     ann_msg.auto_submitted = bool(labels_prepared.get("auto_submitted", False))
+                    
                     ann_msg.is_flagged = bool(labels_prepared.get("is_flagged", False))
+                    
+                    # Populate the action flags
+                    ann_msg.action_fan = bool(labels_prepared.get("fan", False))
+                    ann_msg.action_voice_command = bool(labels_prepared.get("voice_command", False))
+                    ann_msg.action_steering_vibration = bool(labels_prepared.get("steering_vibration", False))
+                    ann_msg.action_save_video = bool(labels_prepared.get("action_save_video", False))
 
                     req.annotator_labels.append(ann_msg)
 
@@ -305,7 +331,7 @@ class RosBridge(Node):
             self.get_logger().error(f"Error preparing StoreLabels service request: {e}")
 
 
-
+# MODIFIED: Added action_save_video conversion and removal of original key
 def prepare_labels_for_saving(labels):
     prepared = deepcopy(labels)
 
@@ -325,11 +351,14 @@ def prepare_labels_for_saving(labels):
     else:
         prepared["voice_feedback"] = None  # safe default
 
+    # NEW: Convert the video_save_requested boolean flag to action_save_video integer flag
+    prepared["action_save_video"] = int(prepared.get("video_save_requested", False)) 
+
     # Auto-submitted: convert bool → int
     prepared["auto_submitted"] = int(prepared.get("auto_submitted", 0))
 
-    # Remove raw 'actions' list to avoid h5py object dtype error
-    for key in ["actions", "timestamp"]:
+    # Remove raw 'actions' list and temporary keys to avoid h5py object dtype error
+    for key in ["actions", "timestamp", "video_save_requested"]: 
         if key in prepared:
             del prepared[key]
     return prepared
@@ -440,12 +469,16 @@ def activate_action():
     return jsonify({"status": "success", "message": f"Action '{action}' triggered."})
 
 
+# MODIFIED: Added video_save_requested extraction and storage
 @app.route("/store_selected_labels", methods=["POST"])
 def store_selected_labels():
     req = request.get_json() or {}
     window_id = req.get("window_id")
     annotator = req.get("annotator_name")
     voice_feedback = req.get("voice_feedback", "")
+    
+    # Extract the video save status from the request
+    video_save_requested = req.get("video_save_requested", False)
 
     if window_id is None or annotator is None:
         return (
@@ -468,6 +501,8 @@ def store_selected_labels():
         "voice_feedback": voice_feedback,
         "timestamp": time.time(),
         "auto_submitted": False,
+        # Store the status in the buffer
+        "video_save_requested": video_save_requested,
     }
 
     with data_manager.lock:
@@ -483,6 +518,26 @@ def submit_labels():
     return store_selected_labels()
 
 
+@app.route("/save_video_segment", methods=["POST"])
+def save_video_segment():
+    """
+    Placeholder route for the Save Video button.
+    The actual flagging is handled in store_selected_labels,
+    this route is primarily for frontend feedback.
+    """
+    req = request.get_json() or {}
+    window_id = req.get("window_id")
+    annotator = req.get("annotator_name")
+
+    # The main logic for storing the video flag is in store_selected_labels.
+    # This route just acknowledges the action was requested.
+    
+    if ros_bridge_node is not None:
+         ros_bridge_node.get_logger().info(f"Video save requested by {annotator} for window {window_id}.")
+
+    return jsonify({"status": "success", "message": "Video save request recorded."})
+
+
 
 def main():
     try:
@@ -491,10 +546,5 @@ def main():
         print("Shutting down web interface.")
 
 
-
-
-
 if __name__ == "__main__":
     main() 
-#    serve(app, host="0.0.0.0", port=5000)
-#     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)

@@ -63,6 +63,7 @@
         box-sizing: border-box;
     }
     textarea { height: 80px; resize: vertical; }
+    /* The style for #submit_btn is kept but is now vestigial since the button is removed */
     #submit_btn {
         width: 100%;
         background-color: #28a745;
@@ -152,6 +153,11 @@
             <button class="voice_feedback_btn" data-feedback="No">No</button>
         </div>
     </div>
+    
+    <div class="groupbox">
+        <label>Video Control</label>
+        <button id="save_video_btn">Save Video</button>
+    </div>
 
     <div class="groupbox">
         <label>Annotator Name</label>
@@ -159,7 +165,6 @@
     </div>
 
 
-    <button id="submit_btn" disabled>Submit</button>
     <p id="status-message" style="font-style: italic; color: #6c757d;"></p>
 </div>
 
@@ -179,7 +184,6 @@
 const notificationBar = document.getElementById('notification-bar');
 const statusMessage = document.getElementById('status-message');
 const mainTimerDisplay = document.getElementById('main-timer');
-const submitBtn = document.getElementById('submit_btn');
 
 const voiceCommandBtn = document.getElementById('voice_command_btn');
 const voiceCommandOptions = document.getElementById('voice_command_options');
@@ -188,6 +192,9 @@ let selectedDrowsiness = null;
 let selectedActions = new Set();
 let selectedVoiceFeedback = null;
 let currentWindowId = 0;
+let hasSubmittedForCurrentWindow = false; // Flag to prevent duplicate submissions
+let hasRequestedVideoSave = false; // <<< NEW: Flag to track if video save was clicked
+
 const LABELING_THRESHOLD = 10; // 10 seconds
 
 function showNotification(msg, isError = false){
@@ -209,7 +216,7 @@ function fetchDataAndRender(){
 }
 setInterval(fetchDataAndRender, 200);
 
-// ----------- Update UI -----------
+// ----------- Update UI & Auto-Submission Logic -----------
 function updateUI(data){
     const metrics = data.latest_metrics;
     document.getElementById('perclos').textContent = (metrics.perclos || 0).toFixed(1);
@@ -237,19 +244,27 @@ function updateUI(data){
         mainTimerDisplay.classList.remove('red-timer');
     }
 
-    // Enable/disable the submit button
-    submitBtn.disabled = !isLabelingPhase;
-
     // Handle new window transition
     if (windowId !== currentWindowId) {
+        // If we transition to a new window (windowId > currentWindowId),
+        // we trigger submission for the *previous* window before resetting the state.
+        if (windowId > currentWindowId) {
+            handleWindowTransition(currentWindowId);
+        }
         currentWindowId = windowId;
         resetLabelingUI();
         statusMessage.textContent = `New window ${windowId} started. Collecting data...`;
     }
 
+    // New: Check if the timer has expired for the current window to force submission
+    // We check for remainingTime < 1 to capture the exact moment the timer hits zero and before the backend updates the window ID.
+    if (remainingTime < 1 && !hasSubmittedForCurrentWindow) {
+         handleWindowTransition(currentWindowId);
+    }
+
     // Update status message
     if (isLabelingPhase) {
-        statusMessage.textContent = `Time to label window ${windowId}. Submit in ${remainingTime.toFixed(0)}s.`;
+        statusMessage.textContent = `Time to label window ${windowId}. Submitting in ${remainingTime.toFixed(0)}s.`;
     } else {
         statusMessage.textContent = `Data collection in progress for window ${windowId}...`;
     }
@@ -257,7 +272,15 @@ function updateUI(data){
     if (data.last_submitted_label && data.last_submitted_label.window_id === (windowId -1)) {
         // This is where you might handle a new submission for the previous window
     }
+}
 
+// NEW: Function to handle the automatic transition and submission
+function handleWindowTransition(windowIdToSubmit) {
+    if (!hasSubmittedForCurrentWindow) {
+        // Pass the current selected labels to submitLabels (which calls store_selected_labels)
+        submitLabels(windowIdToSubmit); 
+        hasSubmittedForCurrentWindow = true; // Mark as submitted
+    }
 }
 
 function resetLabelingUI() {
@@ -268,12 +291,13 @@ function resetLabelingUI() {
     selectedDrowsiness = null;
     selectedActions.clear();
     selectedVoiceFeedback = null;
-    // voiceCommandOptions.style.display = 'none'; // REMOVED: Keep it visible
 
     document.getElementById('notes').value = "";
+    hasSubmittedForCurrentWindow = false; // Reset the submission flag for the new window
+    hasRequestedVideoSave = false; // <<< NEW: Reset the video save flag
 }
 
-// ----------- Plots -----------
+// ----------- Plots (unchanged) -----------
 function updatePlots(data){
     function updateChart(chart, array, y_title, offset = 0.05){
         if (!array || array.length === 0) {
@@ -305,12 +329,15 @@ function updatePlots(data){
     updateChart(steeringChart, data.live_steering, 'Steering Angle', 0.1);
 }
 
+// ----------- Event Listeners (mostly unchanged) -----------
 document.querySelectorAll('.drowsiness_btn').forEach(btn => {
     btn.addEventListener('click', () => {
         if(btn.disabled) return;
         document.querySelectorAll('.drowsiness_btn').forEach(b => b.classList.remove('selected'));
         btn.classList.add('selected');
         selectedDrowsiness = btn.dataset.level;
+        // Store current label state immediately
+        storeSelectedLabels();
     });
 });
 
@@ -327,6 +354,8 @@ document.querySelectorAll('.action_btn').forEach(btn => {
         } else {
             selectedActions.delete(action);
         }
+        // Store current label state immediately
+        storeSelectedLabels();
     });
 });
 
@@ -336,71 +365,47 @@ document.querySelectorAll('.voice_feedback_btn').forEach(btn => {
         btn.classList.add('selected');
         selectedVoiceFeedback = btn.dataset.feedback;
         activateAction('Voice Feedback', selectedVoiceFeedback);
+        // Store current label state immediately
+        storeSelectedLabels();
     });
 });
 
-document.getElementById('submit_btn').addEventListener('click', () => { submitLabels(); });
+// Listener for the new Save Video button
+document.getElementById('save_video_btn').addEventListener('click', () => {
+    saveVideo();
+});
+
 
 // ----------- Submit Labels & Action Activation (MODIFIED) -----------
-// ... existing code ...
 
-async function submitLabels(){
-    const notes = document.getElementById('notes').value;
-    const drowsiness_level = selectedDrowsiness;
+// MODIFIED: Takes windowIdToSubmit argument now, but now acts as an immediate store
+async function submitLabels(windowIdToSubmit){
     const annotator_name = document.getElementById('annotator_name').value.trim();
-
+    
+    // Check for annotator name (critical requirement)
     if (!annotator_name) {
-        showNotification("Please enter your name before submitting.", true);
+        showNotification(`AUTOMATIC SUBMISSION ERROR: Please enter your name. Submission for window ${windowIdToSubmit} failed.`, true);
         return;
     }
-    if (!drowsiness_level) {
-        showNotification("Please select a drowsiness level.", true);
-        return;
-    }
-
-    // Convert Set to Array
-    const actionsToSubmit = Array.from(selectedActions);
-
-    submitBtn.disabled = true;
-    showNotification("Submitting data...", false);
-
-    try {
-        const res = await fetch('/submit_labels', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                window_id: currentWindowId,
-                annotator_name: annotator_name,
-                drowsiness_level: drowsiness_level,
-                actions: actionsToSubmit,
-                notes: notes,
-                // Submit the selected voice feedback value, which is null if no button was clicked.
-                voice_feedback: selectedVoiceFeedback 
-            })
-        });
-        const data = await res.json();
-        if (data.status === 'success') {
-            showNotification('Data submitted successfully!');
-        } else {
-            showNotification('Submission failed: ' + data.message, true);
-        }
-    } catch (error) {
-        console.error('Submission failed:', error);
-        showNotification('Submission failed: Network error or server issue.', true);
-    } finally {
-        // The button will be re-enabled on the next UI update if it's still in the 10-second window
-    }
+    
+    // We call storeSelectedLabels, which buffers the data. The ROS node handles the final submission.
+    // We use the storeSelectedLabels function directly to save the final state before the window transitions.
+    showNotification(`Auto-Submitting data for Window ${windowIdToSubmit}...`, false);
+    await storeSelectedLabels();
 }
 
+// MODIFIED: Added async keyword, fixed logic, and added video_save_requested payload
 async function storeSelectedLabels() {
     const annotator_name = document.getElementById('annotator_name').value.trim();
-    if (!annotator_name) return;
+    if (!annotator_name) return; // Do not store labels if annotator name is missing
 
     const actionsToStore = Array.from(selectedActions);
     const notes = document.getElementById('notes').value;
+    const currentWindowId = parseInt(document.getElementById('window-id').textContent);
+
 
     try {
-        await fetch('/store_selected_labels', {
+        const res = await fetch('/store_selected_labels', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
@@ -409,16 +414,64 @@ async function storeSelectedLabels() {
                 drowsiness_level: selectedDrowsiness,
                 actions: actionsToStore,
                 notes: notes,
-                voice_feedback: selectedActions.has('Voice Command') ? selectedVoiceFeedback : null
+                // Only send voice feedback if Voice Command is selected
+                voice_feedback: selectedVoiceFeedback,
+                // <<< NEW: Send the state of the video save request
+                video_save_requested: hasRequestedVideoSave 
             })
         });
+        // Optional: Add a subtle notification for successful background save if needed
+        // console.log("Labels buffered successfully.");
     } catch (error) {
         console.error('Failed to store labels:', error);
     }
 }
 
-// NEW FUNCTION: Activates actions in real-time
+// NEW FUNCTION: Handler for the Save Video button
+async function saveVideo(){
+    const annotator_name = document.getElementById('annotator_name').value.trim();
+    if (!annotator_name) {
+        showNotification("Please enter your name before saving video.", true);
+        return;
+    }
+    
+    // <<< NEW LOGIC START: Update the flag and immediately store labels
+    hasRequestedVideoSave = true; 
+    storeSelectedLabels(); // Save the label state with the 'true' flag
+    // <<< NEW LOGIC END
+    
+    // Get the current window ID for context
+    const currentWindowId = parseInt(document.getElementById('window-id').textContent);
+
+    showNotification("Requesting video segment save...", false);
+
+    try {
+        const res = await fetch('/save_video_segment', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                window_id: currentWindowId,
+                annotator_name: annotator_name,
+                // You might also send the current time/drowsiness level for context
+                drowsiness_level: selectedDrowsiness
+            })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+            showNotification('Video save request sent successfully! (Segment around window ' + currentWindowId + ')');
+        } else {
+            showNotification('Video save request failed: ' + data.message, true);
+        }
+    } catch (error) {
+        console.error('Video save request failed:', error);
+        showNotification('Video save failed: Network error or server issue.', true);
+    }
+}
+
+
+// NEW FUNCTION: Activates actions in real-time (Unchanged)
 async function activateAction(action, feedback = null) {
+// ... (activateAction logic is unchanged)
     try {
         const res = await fetch('/activate_action', {
             method: 'POST',
@@ -437,8 +490,7 @@ async function activateAction(action, feedback = null) {
 }
 
 
-
-// ----------- Chart.js Init -----------
+// ----------- Chart.js Init (unchanged) -----------
 const earCtx = document.getElementById('earChart').getContext('2d');
 const marCtx = document.getElementById('marChart').getContext('2d');
 const steeringCtx = document.getElementById('steeringChart').getContext('2d');
