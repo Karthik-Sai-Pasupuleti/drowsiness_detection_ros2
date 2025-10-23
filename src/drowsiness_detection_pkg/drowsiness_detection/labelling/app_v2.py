@@ -47,9 +47,9 @@ class DataManager:
     def __init__(self):
         self.lock = threading.Lock()
         self.latest_image = None
-        self.live_ear = deque(maxlen=300)
-        self.live_mar = deque(maxlen=300)
-        self.live_steering = deque(maxlen=300)
+        self.live_ear = deque(maxlen=360)
+        self.live_mar = deque(maxlen=360)
+        self.live_steering = deque(maxlen=360)
         self.latest_metrics = {}
         self.latest_phase_info = {}
         self.selected_labels_buffer = {}  # annotator -> labels
@@ -128,12 +128,6 @@ class RosBridge(Node):
             "/driver_assistance/window_phase",
             self.cb_window_phase,
             10,
-        )
-        
-        self.combined_annotations_pub = self.create_publisher(
-            CombinedAnnotations,
-            "/driver_assistance/combined_annotations",
-            10
         )
         
     
@@ -219,12 +213,10 @@ class RosBridge(Node):
             self.last_published_window_id = window_id
             self.publish_combined_annotations(window_id)
 
-
-    # MODIFIED: Logic updated to handle auto-submission and key presence
     def publish_combined_annotations(self, window_id: int):
         """Combine annotator labels and send them to DriverAssistanceNode via StoreLabels service."""
         try:
-            # --- Ensure service is ready ---
+            # Ensure service exists
             if not hasattr(self, "store_labels_client"):
                 self.store_labels_client = self.create_client(StoreLabels, "store_labels")
 
@@ -232,36 +224,37 @@ class RosBridge(Node):
                 self.get_logger().error("Service 'store_labels' not available.")
                 return
 
-            # --- Build service request ---
             req = StoreLabels.Request()
             req.window_id = window_id
             req.annotator_labels = []
 
             with self.data_manager.lock:
+                # union of annotators that ever submitted or currently have buffered data
                 annotators = set(self.data_manager.selected_labels_buffer.keys()) | set(
                     self.data_manager.last_submitted_labels.keys()
                 )
-
                 if not annotators:
                     annotators = {"default_annotator"}
 
                 for annotator in annotators:
+                    # --- Determine which label set to use ---
                     if annotator in self.data_manager.selected_labels_buffer:
                         labels_to_use = deepcopy(self.data_manager.selected_labels_buffer[annotator])
 
-                        # Check if annotator actually labeled something meaningful
+                        # check if empty (no actual inputs)
                         is_empty_label = (
-                            (not labels_to_use.get("drowsiness_level")) or labels_to_use["drowsiness_level"] in [None, "", "None"]
+                            (not labels_to_use.get("drowsiness_level"))
+                            or labels_to_use["drowsiness_level"] in [None, "", "None"]
                         ) and not labels_to_use.get("actions") and not labels_to_use.get("notes")
 
                         if is_empty_label:
-                            # Treat as auto-submission: use last submitted label instead
+                            # No new input → reuse last label if available
                             if annotator in self.data_manager.last_submitted_labels:
                                 labels_to_use = deepcopy(self.data_manager.last_submitted_labels[annotator])
                                 labels_to_use["auto_submitted"] = True
                                 submission_type = "auto"
                             else:
-                                # No previous label, fallback to defaults
+                                # Brand new annotator with no previous label
                                 labels_to_use = {
                                     "drowsiness_level": "None",
                                     "actions": [],
@@ -272,42 +265,52 @@ class RosBridge(Node):
                                 }
                                 submission_type = "auto"
                         else:
-                            # Real manual input
+                            # user provided manual labels
                             submission_type = "manual"
                             labels_to_use["auto_submitted"] = False
                             self.data_manager.last_submitted_labels[annotator] = deepcopy(labels_to_use)
 
-                        # Clean up buffer
+                        # remove buffer entry after using it
                         del self.data_manager.selected_labels_buffer[annotator]
+                    else:
+                        # no new buffer → reuse last known label
+                        if annotator in self.data_manager.last_submitted_labels:
+                            labels_to_use = deepcopy(self.data_manager.last_submitted_labels[annotator])
+                            labels_to_use["auto_submitted"] = True
+                            submission_type = "auto"
+                        else:
+                            # fallback to safe default
+                            labels_to_use = {
+                                "drowsiness_level": "None",
+                                "actions": [],
+                                "notes": "Auto-submitted: annotator inactive.",
+                                "auto_submitted": True,
+                                "voice_feedback": None,
+                                "video_save_requested": False,
+                            }
+                            submission_type = "auto"
 
+                    # ensure field exists before next step
                     labels_to_use["submission_type"] = submission_type
-                    labels_prepared = prepare_labels_for_saving(labels_to_use)
 
+                    # convert to ROS message format
+                    labels_prepared = prepare_labels_for_saving(labels_to_use)
                     ann_msg = AnnotatorLabels()
                     ann_msg.annotator_name = annotator
-                    # FIX: Explicitly convert to string to meet ROS message requirements
                     ann_msg.drowsiness_level = str(labels_prepared.get("drowsiness_level", "None"))
                     ann_msg.actions = labels_to_use.get("actions", [])
                     ann_msg.notes = labels_prepared.get("notes", "")
                     ann_msg.voice_feedback = str(labels_prepared.get("voice_feedback", ""))
-                    
-                    # FIX 1: Use the correctly determined string variable 'submission_type'
-                    ann_msg.submission_type = submission_type 
-                    
-                    # FIX 2: Ensure auto_submitted is correctly extracted
-                    ann_msg.auto_submitted = bool(labels_prepared.get("auto_submitted", False))
-                    
-                    ann_msg.is_flagged = bool(labels_prepared.get("is_flagged", False))
-                    
-                    # Populate the action flags
+                    ann_msg.submission_type = submission_type
+                    # ann_msg.auto_submitted = bool(labels_prepared.get("auto_submitted", False))
+                    # ann_msg.is_flagged = bool(labels_prepared.get("is_flagged", False))
                     ann_msg.action_fan = bool(labels_prepared.get("fan", False))
                     ann_msg.action_voice_command = bool(labels_prepared.get("voice_command", False))
                     ann_msg.action_steering_vibration = bool(labels_prepared.get("steering_vibration", False))
                     ann_msg.action_save_video = bool(labels_prepared.get("action_save_video", False))
-
                     req.annotator_labels.append(ann_msg)
 
-            # --- Asynchronous service call ---
+            # async call
             future = self.store_labels_client.call_async(req)
 
             def _on_result(fut):
@@ -315,8 +318,7 @@ class RosBridge(Node):
                     res = fut.result()
                     if res.success:
                         self.get_logger().info(
-                            f"[SERVICE] Labels successfully stored for window {window_id} "
-                            f"({len(req.annotator_labels)} annotators)"
+                            f"[SERVICE] Labels successfully stored for window {window_id} ({len(req.annotator_labels)} annotators)"
                         )
                     else:
                         self.get_logger().warn(
@@ -329,6 +331,7 @@ class RosBridge(Node):
 
         except Exception as e:
             self.get_logger().error(f"Error preparing StoreLabels service request: {e}")
+
 
 
 # MODIFIED: Added action_save_video conversion and removal of original key

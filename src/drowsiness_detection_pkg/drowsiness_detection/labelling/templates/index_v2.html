@@ -113,21 +113,18 @@
 <div class="container">
 
 <div class="panel" id="left_panel">
-    <div class="groupbox" id="metrics_panel">
-        <label>Latest Metrics</label>
-        <div>Perclos: <span id="perclos">0.0</span> %</div>
-        <div>Blink Rate: <span id="blink_rate">0.000</span> blinks/min</div>
-        <div>Yawn Rate: <span id="yawn_rate">0.000</span> yawns/min</div>
-        <div>SDLP: <span id="sdlp">0.000</span> m</div>
-        <div>Steering Entropy: <span id="steering_entropy">0.000</span></div>
-        <div>Steering Rate: <span id="steering_rate">0.000</span> deg/s</div>
-    </div>
 
     <div class="groupbox">
-        <p>Window ID: <span id="window-id">0</span></p>
-        <p>Phase: <span id="current-phase">Collecting</span></p>
-        <p>Time Left: <span id="main-timer" class="timer-display">--</span> s</p>
+        <label>Annotator Name</label>
+        <input type="text" id="annotator_name" placeholder="Enter your name"/>
     </div>
+    
+    <div class="groupbox">
+        <p style="font-size: 0.9em; margin: 5px 0;">Window ID: <span id="window-id">0</span></p>
+        <p style="font-size: 0.9em; margin: 5px 0;">Phase: <span id="current-phase">Collecting</span></p>
+        <p style="font-size: 0.9em; margin: 5px 0;">Time Left: <span id="main-timer" class="timer-display">--</span> s</p>
+    </div>
+
 
     <div class="groupbox">
         <label>Drowsiness Level</label>
@@ -159,11 +156,6 @@
         <button id="save_video_btn">Save Video</button>
     </div>
 
-    <div class="groupbox">
-        <label>Annotator Name</label>
-        <input type="text" id="annotator_name" placeholder="Enter your name"/>
-    </div>
-
 
     <p id="status-message" style="font-style: italic; color: #6c757d;"></p>
 </div>
@@ -192,8 +184,8 @@ let selectedDrowsiness = null;
 let selectedActions = new Set();
 let selectedVoiceFeedback = null;
 let currentWindowId = 0;
-let hasSubmittedForCurrentWindow = false; // Flag to prevent duplicate submissions
-let hasRequestedVideoSave = false; // <<< NEW: Flag to track if video save was clicked
+let hasSubmittedForCurrentWindow = false; 
+let hasRequestedVideoSave = false; 
 
 const LABELING_THRESHOLD = 10; // 10 seconds
 
@@ -209,7 +201,7 @@ function showNotification(msg, isError = false){
 function fetchDataAndRender(){
     fetch('/get_live_data').then(res=>res.json()).then(data=>{
         updateUI(data);
-        updatePlots(data);
+        updatePlots(data); 
     }).catch(error => {
         console.error('Failed to fetch data:', error);
     });
@@ -218,14 +210,6 @@ setInterval(fetchDataAndRender, 200);
 
 // ----------- Update UI & Auto-Submission Logic -----------
 function updateUI(data){
-    const metrics = data.latest_metrics;
-    document.getElementById('perclos').textContent = (metrics.perclos || 0).toFixed(1);
-    document.getElementById('blink_rate').textContent = (metrics.blink_rate || 0).toFixed(3);
-    document.getElementById('yawn_rate').textContent = (metrics.yawn_rate || 0).toFixed(3);
-    document.getElementById('sdlp').textContent = (metrics.sdlp || 0).toFixed(3);
-    document.getElementById('steering_entropy').textContent = (metrics.steering_entropy || 0).toFixed(3);
-    document.getElementById('steering_rate').textContent = (metrics.steering_rate || 0).toFixed(3);
-
     const phase_info = data.phase_info;
     const windowId = phase_info.window_id || 0;
     const remainingTime = phase_info.remaining_time || 0;
@@ -246,8 +230,6 @@ function updateUI(data){
 
     // Handle new window transition
     if (windowId !== currentWindowId) {
-        // If we transition to a new window (windowId > currentWindowId),
-        // we trigger submission for the *previous* window before resetting the state.
         if (windowId > currentWindowId) {
             handleWindowTransition(currentWindowId);
         }
@@ -256,8 +238,7 @@ function updateUI(data){
         statusMessage.textContent = `New window ${windowId} started. Collecting data...`;
     }
 
-    // New: Check if the timer has expired for the current window to force submission
-    // We check for remainingTime < 1 to capture the exact moment the timer hits zero and before the backend updates the window ID.
+    // Check if the timer has expired for the current window to force submission
     if (remainingTime < 1 && !hasSubmittedForCurrentWindow) {
          handleWindowTransition(currentWindowId);
     }
@@ -274,10 +255,9 @@ function updateUI(data){
     }
 }
 
-// NEW: Function to handle the automatic transition and submission
+// Function to handle the automatic transition and submission
 function handleWindowTransition(windowIdToSubmit) {
     if (!hasSubmittedForCurrentWindow) {
-        // Pass the current selected labels to submitLabels (which calls store_selected_labels)
         submitLabels(windowIdToSubmit); 
         hasSubmittedForCurrentWindow = true; // Mark as submitted
     }
@@ -287,15 +267,16 @@ function resetLabelingUI() {
     document.querySelectorAll('.drowsiness_btn').forEach(b => b.classList.remove('selected'));
     document.querySelectorAll('.action_btn').forEach(b => b.classList.remove('selected'));
     document.querySelectorAll('.voice_feedback_btn').forEach(b => b.classList.remove('selected'));
+    document.getElementById('save_video_btn').classList.remove('selected'); 
 
     selectedDrowsiness = null;
     selectedActions.clear();
     selectedVoiceFeedback = null;
-
     document.getElementById('notes').value = "";
-    hasSubmittedForCurrentWindow = false; // Reset the submission flag for the new window
-    hasRequestedVideoSave = false; // <<< NEW: Reset the video save flag
+    hasSubmittedForCurrentWindow = false;
+    hasRequestedVideoSave = false;
 }
+
 
 // ----------- Plots (unchanged) -----------
 function updatePlots(data){
@@ -310,13 +291,17 @@ function updatePlots(data){
         }
 
         const n = array.length;
-        const labels = Array.from({length:n}, (_,i) => -((n - 1 - i) * 0.033).toFixed(1));
+        const labels = Array.from({length:n}, (_,i) => -((n - 1 - i) * (1/60)).toFixed(2));
 
         const minVal = Math.min(...array);
         const maxVal = Math.max(...array);
 
         chart.data.labels = labels;
         chart.data.datasets[0].data = array;
+
+        chart.options.scales.x.min = -6;
+        chart.options.scales.x.max = 0;
+
 
         chart.options.scales.y.min = minVal - offset;
         chart.options.scales.y.max = maxVal + offset;
@@ -336,7 +321,6 @@ document.querySelectorAll('.drowsiness_btn').forEach(btn => {
         document.querySelectorAll('.drowsiness_btn').forEach(b => b.classList.remove('selected'));
         btn.classList.add('selected');
         selectedDrowsiness = btn.dataset.level;
-        // Store current label state immediately
         storeSelectedLabels();
     });
 });
@@ -354,7 +338,6 @@ document.querySelectorAll('.action_btn').forEach(btn => {
         } else {
             selectedActions.delete(action);
         }
-        // Store current label state immediately
         storeSelectedLabels();
     });
 });
@@ -365,20 +348,29 @@ document.querySelectorAll('.voice_feedback_btn').forEach(btn => {
         btn.classList.add('selected');
         selectedVoiceFeedback = btn.dataset.feedback;
         activateAction('Voice Feedback', selectedVoiceFeedback);
-        // Store current label state immediately
         storeSelectedLabels();
     });
 });
 
 // Listener for the new Save Video button
-document.getElementById('save_video_btn').addEventListener('click', () => {
-    saveVideo();
+const saveVideoBtn = document.getElementById('save_video_btn');
+saveVideoBtn.addEventListener('click', () => {
+    const isSelected = saveVideoBtn.classList.toggle('selected');
+    hasRequestedVideoSave = isSelected; // track flag based on toggle
+    storeSelectedLabels(); // immediately store updated state
+
+    if (isSelected) {
+        showNotification("Video save requested for this window.", false);
+    } else {
+        showNotification("Video save request canceled for this window.", false);
+    }
 });
 
 
-// ----------- Submit Labels & Action Activation (MODIFIED) -----------
 
-// MODIFIED: Takes windowIdToSubmit argument now, but now acts as an immediate store
+// ----------- Submit Labels & Action Activation (REVERTED JAVASCRIPT) -----------
+
+// REVERTED: Now checks for annotator name again.
 async function submitLabels(windowIdToSubmit){
     const annotator_name = document.getElementById('annotator_name').value.trim();
     
@@ -388,13 +380,11 @@ async function submitLabels(windowIdToSubmit){
         return;
     }
     
-    // We call storeSelectedLabels, which buffers the data. The ROS node handles the final submission.
-    // We use the storeSelectedLabels function directly to save the final state before the window transitions.
     showNotification(`Auto-Submitting data for Window ${windowIdToSubmit}...`, false);
     await storeSelectedLabels();
 }
 
-// MODIFIED: Added async keyword, fixed logic, and added video_save_requested payload
+// REVERTED: Now reads annotator name from the input field again.
 async function storeSelectedLabels() {
     const annotator_name = document.getElementById('annotator_name').value.trim();
     if (!annotator_name) return; // Do not store labels if annotator name is missing
@@ -414,20 +404,17 @@ async function storeSelectedLabels() {
                 drowsiness_level: selectedDrowsiness,
                 actions: actionsToStore,
                 notes: notes,
-                // Only send voice feedback if Voice Command is selected
                 voice_feedback: selectedVoiceFeedback,
-                // <<< NEW: Send the state of the video save request
                 video_save_requested: hasRequestedVideoSave 
             })
         });
-        // Optional: Add a subtle notification for successful background save if needed
         // console.log("Labels buffered successfully.");
     } catch (error) {
         console.error('Failed to store labels:', error);
     }
 }
 
-// NEW FUNCTION: Handler for the Save Video button
+// REVERTED: Now reads annotator name from the input field again.
 async function saveVideo(){
     const annotator_name = document.getElementById('annotator_name').value.trim();
     if (!annotator_name) {
@@ -435,12 +422,9 @@ async function saveVideo(){
         return;
     }
     
-    // <<< NEW LOGIC START: Update the flag and immediately store labels
     hasRequestedVideoSave = true; 
-    storeSelectedLabels(); // Save the label state with the 'true' flag
-    // <<< NEW LOGIC END
+    storeSelectedLabels(); 
     
-    // Get the current window ID for context
     const currentWindowId = parseInt(document.getElementById('window-id').textContent);
 
     showNotification("Requesting video segment save...", false);
@@ -452,7 +436,6 @@ async function saveVideo(){
             body: JSON.stringify({
                 window_id: currentWindowId,
                 annotator_name: annotator_name,
-                // You might also send the current time/drowsiness level for context
                 drowsiness_level: selectedDrowsiness
             })
         });
@@ -471,7 +454,6 @@ async function saveVideo(){
 
 // NEW FUNCTION: Activates actions in real-time (Unchanged)
 async function activateAction(action, feedback = null) {
-// ... (activateAction logic is unchanged)
     try {
         const res = await fetch('/activate_action', {
             method: 'POST',

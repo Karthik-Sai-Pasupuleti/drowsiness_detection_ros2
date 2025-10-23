@@ -454,8 +454,8 @@ class DualControl(Node):
                     world.hud.toggle_info()
                 elif event.button == 2:
                     world.camera_manager.toggle_camera()
-                # elif event.button == 3:
-                #     world.next_weather()
+                elif event.button == 3:
+                    world.next_weather()
                 elif event.button == self._reverse_idx:
                     self._control.gear = 1 if self._control.reverse else -1
                 elif event.button == 23:
@@ -474,10 +474,10 @@ class DualControl(Node):
                     world.hud.help.toggle()
                 elif event.key == K_TAB:
                     world.camera_manager.toggle_camera()
-                # elif event.key == K_c and pygame.key.get_mods() & KMOD_SHIFT:
-                #     world.next_weather(reverse=True)
-                # elif event.key == K_c:
-                #     world.next_weather()
+                elif event.key == K_c and pygame.key.get_mods() & KMOD_SHIFT:
+                    world.next_weather(reverse=True)
+                elif event.key == K_c:
+                    world.next_weather()
                 elif event.key == K_BACKQUOTE:
                     world.camera_manager.next_sensor()
                 elif event.key > K_0 and event.key <= K_9:
@@ -1061,20 +1061,20 @@ class CameraManager(object):
                         carla.Location(
                             x=0.0 * bound_x,  # move camera forward
                             y=0.0 * bound_y,  # centered
-                            z=1.5 * bound_z,  # higher above hood
+                            z=1.23 * bound_z,  # higher above hood
                         ),
-                        carla.Rotation(pitch=-9.0),  # slight upward view, shows road
+                        carla.Rotation(pitch=-4.0),  # slight upward view, shows road
                     ),
                     Attachment.Rigid,
                 ),
                 # Rear or side view camera
-                # (
-                #     carla.Transform(
-                #         carla.Location(x=-7.0, y=0.0, z=2.8),  # make sure y is defined
-                #         carla.Rotation(pitch=-15),
-                #     ),
-                #     Attachment.Rigid,  
-                # ),
+                (
+                    carla.Transform(
+                        carla.Location(x=-7.0, y=0.0, z=2.8),  # make sure y is defined
+                        carla.Rotation(pitch=-15),
+                    ),
+                    Attachment.Rigid,  
+                ),
             ]
 
         else:
@@ -1109,52 +1109,52 @@ class CameraManager(object):
         self.transform_index = 1
         self.sensors = [
             ["sensor.camera.rgb", cc.Raw, "Camera RGB", {}],
-            # ["sensor.camera.depth", cc.Raw, "Camera Depth (Raw)", {}],
-            # ["sensor.camera.depth", cc.Depth, "Camera Depth (Gray Scale)", {}],
-            # [
-            #     "sensor.camera.depth",
-            #     cc.LogarithmicDepth,
-            #     "Camera Depth (Logarithmic Gray Scale)",
-            #     {},
-            # ],
-            # [
-            #     "sensor.camera.semantic_segmentation",
-            #     cc.Raw,
-            #     "Camera Semantic Segmentation (Raw)",
-            #     {},
-            # ],
-            # [
-            #     "sensor.camera.semantic_segmentation",
-            #     cc.CityScapesPalette,
-            #     "Camera Semantic Segmentation (CityScapes Palette)",
-            #     {},
-            # ],
-            # [
-            #     "sensor.camera.instance_segmentation",
-            #     cc.Raw,
-            #     "Camera Instance Segmentation (Raw)",
-            #     {},
-            # ],
-            # ["sensor.lidar.ray_cast", None, "Lidar (Ray-Cast)", {"range": "50"}],
-            # [
-            #     "sensor.lidar.ray_cast_semantic",
-            #     None,
-            #     "Semantic Lidar (Ray-Cast)",
-            #     {"range": "50"},
-            # ],
-            # [
-            #     "sensor.camera.rgb",
-            #     cc.Raw,
-            #     "Camera RGB Distorted",
-            #     {
-            #         "lens_circle_multiplier": "3.0",
-            #         "lens_circle_falloff": "3.0",
-            #         "chromatic_aberration_intensity": "0.5",
-            #         "chromatic_aberration_offset": "0",
-            #     },
-            # ],
-            # ["sensor.camera.optical_flow", cc.Raw, "Optical Flow", {}],
-            # ["sensor.camera.normals", cc.Raw, "Camera Normals", {}],
+            ["sensor.camera.depth", cc.Raw, "Camera Depth (Raw)", {}],
+            ["sensor.camera.depth", cc.Depth, "Camera Depth (Gray Scale)", {}],
+            [
+                "sensor.camera.depth",
+                cc.LogarithmicDepth,
+                "Camera Depth (Logarithmic Gray Scale)",
+                {},
+            ],
+            [
+                "sensor.camera.semantic_segmentation",
+                cc.Raw,
+                "Camera Semantic Segmentation (Raw)",
+                {},
+            ],
+            [
+                "sensor.camera.semantic_segmentation",
+                cc.CityScapesPalette,
+                "Camera Semantic Segmentation (CityScapes Palette)",
+                {},
+            ],
+            [
+                "sensor.camera.instance_segmentation",
+                cc.Raw,
+                "Camera Instance Segmentation (Raw)",
+                {},
+            ],
+            ["sensor.lidar.ray_cast", None, "Lidar (Ray-Cast)", {"range": "50"}],
+            [
+                "sensor.lidar.ray_cast_semantic",
+                None,
+                "Semantic Lidar (Ray-Cast)",
+                {"range": "50"},
+            ],
+            [
+                "sensor.camera.rgb",
+                cc.Raw,
+                "Camera RGB Distorted",
+                {
+                    "lens_circle_multiplier": "3.0",
+                    "lens_circle_falloff": "3.0",
+                    "chromatic_aberration_intensity": "0.5",
+                    "chromatic_aberration_offset": "0",
+                },
+            ],
+            ["sensor.camera.optical_flow", cc.Raw, "Optical Flow", {}],
+            ["sensor.camera.normals", cc.Raw, "Camera Normals", {}],
         ]
         world = self._parent.get_world()
         bp_library = world.get_blueprint_library()
@@ -1409,7 +1409,7 @@ def main():
     argparser.add_argument(
         "--res",
         metavar="WIDTHxHEIGHT",
-        default="1920x1200",
+        default="5760x1080",
         help="window resolution (default: 1280x720) or 2560x1080",
     )
     argparser.add_argument(

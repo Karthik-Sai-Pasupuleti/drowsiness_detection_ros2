@@ -59,6 +59,12 @@ Driver drowsiness detection and assistance system implemented using ROS2. The sy
 
 ## Launch Files
 
+### build
+```bash
+colcon build --symlink-install
+source install/setup.bash
+```
+
 ### Prerequisites
 Before running the ROS2 launch files, you need to start the CARLA simulator:
 
@@ -208,7 +214,5 @@ if it failed then update the ip address in windows network settings.
 http://192.168.1.10:5000
 ```
 
-
-colcon build --symlink-install
-
-source install/setup.bash
+### Launch 
+ros2 launch drowsiness_detection_pkg complete_system_launch.py driver_id:=test_drive

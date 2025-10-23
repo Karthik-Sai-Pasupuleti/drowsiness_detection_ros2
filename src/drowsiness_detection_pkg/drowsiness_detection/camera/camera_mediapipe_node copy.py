@@ -4,7 +4,7 @@ ROS2 Node: Combined PySpin camera + Mediapipe EAR/MAR processing
 Publishes Mediapipe-annotated frames on /camera/image_raw
 Publishes EAR/MAR metrics on /ear_mar
 """
-import os
+
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
@@ -24,6 +24,7 @@ from .utils import calculate_avg_ear, mouth_aspect_ratio
 
 class DeviceEventHandler(PySpin.DeviceEventHandler):
     """Handles camera device events (optional for debugging)."""
+
     def __init__(self, event_name="EventExposureEnd"):
         super().__init__()
         self.event_name = event_name
@@ -51,23 +52,13 @@ class CameraMediapipeNode(Node):
         self.target_fps = self.get_parameter("camera_fps").value
         self.frame_period = 1.0 / self.target_fps
 
-        self.declare_parameter("driver_id", "maria")
-        self.driver_id = self.get_parameter("driver_id").value
-
         # === Frame Queue ===
         self.frame_queue = Queue(maxsize=4)
-
-        # === Video Recording Setup ===
-        output_path = os.path.join("drowsiness_data", self.driver_id, "videos", "full_video.mp4")
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        self.video_writer = cv2.VideoWriter(output_path, fourcc, self.target_fps, (640, 480))
-        self.get_logger().info(f"Video recording to: {output_path}")
 
         # === Mediapipe Setup ===
         base_options = python.BaseOptions(
             model_asset_path="/home/user/ros2_ws/src/models/face_landmarker.task",
-            delegate=python.BaseOptions.Delegate.CPU,
+            delegate=python.BaseOptions.Delegate.GPU,
         )
         options = vision.FaceLandmarkerOptions(
             base_options=base_options,
@@ -77,6 +68,7 @@ class CameraMediapipeNode(Node):
         )
         self.face_landmarker = vision.FaceLandmarker.create_from_options(options)
 
+        # Landmark indices for visualization
         self.LEFT_EYE = [362, 380, 374, 263, 386, 385]
         self.RIGHT_EYE = [33, 159, 158, 133, 153, 145]
         self.MOUTH = [78, 81, 13, 311, 308, 402, 14, 178]
@@ -92,14 +84,7 @@ class CameraMediapipeNode(Node):
         self.get_logger().info(f"Using camera: {self.cam.GetUniqueID()}")
         self.cam.Init()
 
-        # Configure camera (clean method)
-        self.configure_camera(
-            pixel_format="BGR8",
-            exposure_us=20000.0,
-            gain=5.0
-        )
-
-        # === Start acquisition ===
+        self.cam.AcquisitionMode.SetValue(PySpin.AcquisitionMode_Continuous)
         self.cam.BeginAcquisition()
 
         # Optional event handler
@@ -117,62 +102,6 @@ class CameraMediapipeNode(Node):
 
         self.get_logger().info("Camera + Mediapipe node started (timer mode).")
 
-    # -------------------------------------------------------------------------
-    # === CAMERA CONFIGURATION METHOD ===
-    # -------------------------------------------------------------------------
-    def configure_camera(self, pixel_format="BayerBG16", exposure_us=20000.0, gain=5.0):
-        """Configures FLIR camera settings before acquisition."""
-        nodemap = self.cam.GetNodeMap()
-
-        # Pixel format selection
-        pixel_formats = {
-            "BayerBG8": PySpin.PixelFormat_BayerBG8,
-            "BayerBG16": PySpin.PixelFormat_BayerBG16,
-            "BGR8": PySpin.PixelFormat_BGR8,
-            "RGB8Packed": PySpin.PixelFormat_RGB8Packed,
-        }
-
-        if pixel_format in pixel_formats:
-            if PySpin.IsAvailable(self.cam.PixelFormat) and PySpin.IsWritable(self.cam.PixelFormat):
-                self.cam.PixelFormat.SetValue(pixel_formats[pixel_format])
-                self.get_logger().info(f"Pixel format set to {pixel_format}.")
-            else:
-                self.get_logger().warn("PixelFormat not available or writable.")
-        else:
-            self.get_logger().warn(f"Unknown pixel format: {pixel_format}")
-
-        # === Turn off or enable auto modes ===
-        try:
-            if PySpin.IsAvailable(self.cam.ExposureAuto):
-                self.cam.ExposureAuto.SetValue(PySpin.ExposureAuto_Off)
-            if PySpin.IsAvailable(self.cam.GainAuto):
-                # Set GainAuto to Continuous
-                self.cam.GainAuto.SetValue(PySpin.GainAuto_Continuous)
-                self.get_logger().info("GainAuto set to Continuous.")
-        except PySpin.SpinnakerException as e:
-            self.get_logger().warn(f"Error setting auto modes: {e}")
-
-        # === Manual exposure and gain (only if not auto) ===
-        try:
-            if PySpin.IsAvailable(self.cam.ExposureTime) and PySpin.IsWritable(self.cam.ExposureTime):
-                self.cam.ExposureTime.SetValue(exposure_us)
-                self.get_logger().info(f"Exposure time set to {exposure_us} µs.")
-        except PySpin.SpinnakerException:
-            self.get_logger().warn("ExposureTime not writable.")
-
-        try:
-            if PySpin.IsAvailable(self.cam.Gain) and PySpin.IsWritable(self.cam.Gain):
-                self.cam.Gain.SetValue(gain)
-                self.get_logger().info(f"Manual gain set to {gain} dB.")
-        except PySpin.SpinnakerException:
-            self.get_logger().warn("Gain not writable.")
-
-        # === Acquisition mode ===
-        try:
-            self.cam.AcquisitionMode.SetValue(PySpin.AcquisitionMode_Continuous)
-            self.get_logger().info("Acquisition mode set to Continuous.")
-        except PySpin.SpinnakerException as e:
-            self.get_logger().warn(f"Error setting acquisition mode: {e}")
     # -------------------------------------------------------------------------
     # Camera Acquisition (Timer Callback)
     # -------------------------------------------------------------------------
@@ -205,36 +134,24 @@ class CameraMediapipeNode(Node):
     # -------------------------------------------------------------------------
     def worker_loop(self):
         while self.running and rclpy.ok():
+            # Drop older frames if queue has more than 1
             while self.frame_queue.qsize() > 1:
                 _ = self.frame_queue.get_nowait()
             frame = self.frame_queue.get()
             self.process_frame(frame)
 
+
     def process_frame(self, img_frame: np.ndarray):
         """Run Mediapipe on one frame and publish results."""
         try:
-            # --- Handle BayerBG16 or raw 16-bit frames ---
-            if img_frame.dtype == np.uint16:
-                # Option 1: Normalize to full 8-bit dynamic range (safe and general)
-                frame_norm = cv2.normalize(img_frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            frame = img_frame.copy()
 
-                # Option 2 (alternative): Bit-shift if camera actually uses 12–14 bits effective depth
-                # frame_norm = (img_frame >> 8).astype(np.uint8)
+            if len(frame.shape) == 2 or frame.shape[2] == 1:
+                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
-                # Demosaic (Debayer) to full color
-                frame_bgr = cv2.cvtColor(frame_norm, cv2.COLOR_BAYER_BG2BGR)
-            else:
-                # Already color or grayscale
-                if len(img_frame.shape) == 2 or img_frame.shape[2] == 1:
-                    frame_bgr = cv2.cvtColor(img_frame, cv2.COLOR_GRAY2BGR)
-                else:
-                    frame_bgr = img_frame
-
-            # --- Convert for Mediapipe (RGB) ---
-            rgb_frame = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-
-            # Run Mediapipe detection
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+            # thread safety for Mediapipe
             with self.face_lock:
                 result = self.face_landmarker.detect(mp_image)
 
@@ -243,30 +160,25 @@ class CameraMediapipeNode(Node):
                 landmarks = np.array([[lm.x, lm.y] for lm in result.face_landmarks[0]])
                 ear = calculate_avg_ear(landmarks)
                 mar = mouth_aspect_ratio(landmarks)
-                # self.draw_keypoints(frame_bgr, landmarks)
+                self.draw_keypoints(frame, landmarks)
 
-            # === Publish EAR/MAR ===
+            # Publish metrics
             ear_mar_msg = EarMarValue()
             ear_mar_msg.header.stamp = self.get_clock().now().to_msg()
             ear_mar_msg.ear_value = float(ear)
             ear_mar_msg.mar_value = float(mar)
             self.metrics_pub.publish(ear_mar_msg)
 
-            # === Publish annotated frame ===
-            resized_frame = cv2.resize(rgb_frame, (640, 480), interpolation=cv2.INTER_AREA)
-            img_msg = self.bridge.cv2_to_imgmsg(resized_frame, encoding="rgb8")
+            # Publish annotated frame
+            resized_frame = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_AREA)
+
+            img_msg = self.bridge.cv2_to_imgmsg(resized_frame, encoding="bgr8")
             img_msg.header.stamp = self.get_clock().now().to_msg()
             img_msg.header.frame_id = "camera_optical_frame"
             self.image_pub.publish(img_msg)
 
-            # === Write video frame ===
-            if self.video_writer.isOpened():
-                self.video_writer.write(resized_frame)
-
         except Exception as e:
             self.get_logger().error(f"Mediapipe processing error: {e}")
-
-
 
     # -------------------------------------------------------------------------
     # Visualization Helper
@@ -292,31 +204,15 @@ class CameraMediapipeNode(Node):
         self.running = False
         if hasattr(self, "worker_thread"):
             self.worker_thread.join(timeout=2.0)
-
-        if hasattr(self, "video_writer") and self.video_writer.isOpened():
-            self.video_writer.release()
-            self.get_logger().info("Video writer released.")
-
         try:
             if self.cam:
-                try:
-                    self.cam.EndAcquisition()
-                except PySpin.SpinnakerException:
-                    pass
-                try:
-                    self.cam.UnregisterEventHandler(self.event_handler)
-                except Exception:
-                    pass
-                try:
-                    self.cam.DeInit()
-                except Exception:
-                    pass
-                del self.cam
+                self.cam.UnregisterEventHandler(self.event_handler)
+                self.cam.EndAcquisition()
+                self.cam.DeInit()
             self.cameras.Clear()
             self.system.ReleaseInstance()
         except PySpin.SpinnakerException as ex:
             self.get_logger().warn(f"Error releasing camera: {ex}")
-
         super().destroy_node()
 
 
