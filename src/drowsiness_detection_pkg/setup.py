@@ -50,6 +50,7 @@ setup(
             "speaker_node = drowsiness_detection.bot.controls.speaker_node:main",
             "fan_node = drowsiness_detection.bot.controls.fan_node:main",
             "steering_wheel_ffb_node = drowsiness_detection.bot.controls.steering_wheel_autocenter:main",
+            "vehicle_info_node = drowsiness_detection.carla.vehicle_info:main",
         ],
     },
 )

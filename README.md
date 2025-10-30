@@ -216,3 +216,66 @@ http://192.168.1.10:5000
 
 ### Launch 
 ros2 launch drowsiness_detection_pkg complete_system_launch.py driver_id:=test_drive
+
+
+## Vehicle info
+
+id: 283
+type: vehicle.mercedes.coupe_2020
+rolename: hero
+wheels:
+- tire_friction: 3.5
+  damping_rate: 0.25
+  max_steer_angle: 69.99999237060547
+  radius: 34.25
+  max_brake_torque: 800.0
+  max_handbrake_torque: 0.0
+  position:
+    x: -794.5993041992188
+    y: 30230.58984375
+    z: 62.566890716552734
+- tire_friction: 3.5
+  damping_rate: 0.25
+  max_steer_angle: 69.99999237060547
+  radius: 34.25
+  max_brake_torque: 800.0
+  max_handbrake_torque: 0.0
+  position:
+    x: -648.115234375
+    y: 30294.5703125
+    z: 62.566890716552734
+- tire_friction: 3.5
+  damping_rate: 0.25
+  max_steer_angle: 0.0
+  radius: 34.25
+  max_brake_torque: 800.0
+  max_handbrake_torque: 1600.0
+  position:
+    x: -907.9749145507812
+    y: 30490.1640625
+    z: 62.566890716552734
+- tire_friction: 3.5
+  damping_rate: 0.25
+  max_steer_angle: 0.0
+  radius: 34.25
+  max_brake_torque: 800.0
+  max_handbrake_torque: 1600.0
+  position:
+    x: -761.4908447265625
+    y: 30554.14453125
+    z: 62.566890716552734
+max_rpm: 0.0
+moi: 0.0
+damping_rate_full_throttle: 0.0
+damping_rate_zero_throttle_clutch_engaged: 0.0
+damping_rate_zero_throttle_clutch_disengaged: 0.0
+use_gear_autobox: false
+gear_switch_time: 0.0
+clutch_strength: 0.0
+mass: 0.0
+drag_coefficient: 0.0
+center_of_mass:
+  x: 0.0
+  y: 0.0
+  z: 0.0
+---

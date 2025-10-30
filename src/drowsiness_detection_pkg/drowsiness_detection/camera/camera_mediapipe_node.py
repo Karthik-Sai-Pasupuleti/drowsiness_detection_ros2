@@ -94,9 +94,9 @@ class CameraMediapipeNode(Node):
 
         # Configure camera (clean method)
         self.configure_camera(
-            pixel_format="BGR8",
             exposure_us=20000.0,
-            gain=5.0
+            gain=5.0,
+            fps=30.0
         )
 
         # === Start acquisition ===
@@ -120,59 +120,83 @@ class CameraMediapipeNode(Node):
     # -------------------------------------------------------------------------
     # === CAMERA CONFIGURATION METHOD ===
     # -------------------------------------------------------------------------
-    def configure_camera(self, pixel_format="BayerBG16", exposure_us=20000.0, gain=5.0):
-        """Configures FLIR camera settings before acquisition."""
+    def configure_camera(
+        self,
+        exposure_us=15000.0,   # 15 ms = 66 FPS theoretical max
+        fps=30.0,
+        gain=5.0,
+    ):
+        """Configures FLIR camera (BGR8 only) with exposure, gain, ROI, and FPS."""
+        self.get_logger().info("=== Configuring FLIR camera (BGR8 mode) ===")
+
         nodemap = self.cam.GetNodeMap()
 
-        # Pixel format selection
-        pixel_formats = {
-            "BayerBG8": PySpin.PixelFormat_BayerBG8,
-            "BayerBG16": PySpin.PixelFormat_BayerBG16,
-            "BGR8": PySpin.PixelFormat_BGR8,
-            "RGB8Packed": PySpin.PixelFormat_RGB8Packed,
-        }
-
-        if pixel_format in pixel_formats:
+        # --- Pixel format (force BGR8) ---
+        try:
             if PySpin.IsAvailable(self.cam.PixelFormat) and PySpin.IsWritable(self.cam.PixelFormat):
-                self.cam.PixelFormat.SetValue(pixel_formats[pixel_format])
-                self.get_logger().info(f"Pixel format set to {pixel_format}.")
+                self.cam.PixelFormat.SetValue(PySpin.PixelFormat_BGR8)
+                self.get_logger().info("Pixel format set to BGR8.")
             else:
                 self.get_logger().warn("PixelFormat not available or writable.")
-        else:
-            self.get_logger().warn(f"Unknown pixel format: {pixel_format}")
+        except PySpin.SpinnakerException as e:
+            self.get_logger().warn(f"Failed to set pixel format: {e}")
 
-        # === Turn off or enable auto modes ===
+        # --- Auto modes ---
         try:
             if PySpin.IsAvailable(self.cam.ExposureAuto):
                 self.cam.ExposureAuto.SetValue(PySpin.ExposureAuto_Off)
             if PySpin.IsAvailable(self.cam.GainAuto):
-                # Set GainAuto to Continuous
                 self.cam.GainAuto.SetValue(PySpin.GainAuto_Continuous)
                 self.get_logger().info("GainAuto set to Continuous.")
         except PySpin.SpinnakerException as e:
             self.get_logger().warn(f"Error setting auto modes: {e}")
 
-        # === Manual exposure and gain (only if not auto) ===
+        # --- Exposure ---
         try:
-            if PySpin.IsAvailable(self.cam.ExposureTime) and PySpin.IsWritable(self.cam.ExposureTime):
-                self.cam.ExposureTime.SetValue(exposure_us)
-                self.get_logger().info(f"Exposure time set to {exposure_us} µs.")
+            # Exposure time must be < 1/FPS to avoid frame overlap
+            exposure_limit = (1e6 / fps) * 0.9  # 90% of frame time
+            exposure_us = min(exposure_us, exposure_limit)
+            self.cam.ExposureTime.SetValue(exposure_us)
+            self.get_logger().info(f"Exposure time set to {exposure_us:.1f} µs.")
         except PySpin.SpinnakerException:
             self.get_logger().warn("ExposureTime not writable.")
 
+        # --- Gain ---
         try:
             if PySpin.IsAvailable(self.cam.Gain) and PySpin.IsWritable(self.cam.Gain):
                 self.cam.Gain.SetValue(gain)
-                self.get_logger().info(f"Manual gain set to {gain} dB.")
+                self.get_logger().info(f"Manual gain set to {gain:.2f} dB.")
         except PySpin.SpinnakerException:
             self.get_logger().warn("Gain not writable.")
 
-        # === Acquisition mode ===
+        # --- Frame rate ---
+        try:
+            if PySpin.IsAvailable(self.cam.AcquisitionFrameRateEnable):
+                self.cam.AcquisitionFrameRateEnable.SetValue(True)
+
+            max_fps = self.cam.AcquisitionFrameRate.GetMax()
+            fps_to_set = min(fps, max_fps)
+            self.cam.AcquisitionFrameRate.SetValue(fps_to_set)
+            self.get_logger().info(f"Requested frame rate: {fps_to_set:.2f} FPS (max {max_fps:.2f}).")
+        except PySpin.SpinnakerException as e:
+            self.get_logger().warn(f"Error setting frame rate: {e}")
+
+        # --- Acquisition mode ---
         try:
             self.cam.AcquisitionMode.SetValue(PySpin.AcquisitionMode_Continuous)
             self.get_logger().info("Acquisition mode set to Continuous.")
         except PySpin.SpinnakerException as e:
             self.get_logger().warn(f"Error setting acquisition mode: {e}")
+
+        # --- Report actual resulting FPS ---
+        try:
+            resulting_fps = self.cam.AcquisitionResultingFrameRate.GetValue()
+            self.get_logger().info(f"Actual resulting frame rate: {resulting_fps:.2f} FPS.")
+        except PySpin.SpinnakerException:
+            self.get_logger().warn("Unable to read resulting FPS.")
+
+        self.get_logger().info("=== Camera configuration complete ===")
+
     # -------------------------------------------------------------------------
     # Camera Acquisition (Timer Callback)
     # -------------------------------------------------------------------------
@@ -326,7 +350,7 @@ def main(args=None):
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
-        pass
+        node.get_logger().info("Keyboard interrupt detected — stopping node...")
     finally:
         node.destroy_node()
         rclpy.shutdown()

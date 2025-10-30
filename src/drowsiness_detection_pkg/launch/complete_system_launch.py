@@ -25,16 +25,16 @@ def generate_launch_description():
     )
 
     # === Launch CARLA simulator (runs immediately after IP setup) ===
-    carla_process = ExecuteProcess(
-        cmd=[
-            "/home/user/Downloads/CARLA_0.9.16/CarlaUE4.sh",
-            "-RenderOffScreen",
-            "--quality-level=LOW",
-            "--ros2",
-        ],
-        output="screen",
-        shell=True,
-    )
+    # carla_process = ExecuteProcess(
+    #     cmd=[
+    #         "/home/user/Downloads/CARLA_0.9.16/CarlaUE4.sh",
+    #         "-RenderOffScreen",
+    #         "--quality-level=LOW",
+    #         "--ros2",
+    #     ],
+    #     output="screen",
+    #     shell=True,
+    # )
 
     # === Define ROS2 nodes ===
     mediapipe_node = Node(
@@ -97,7 +97,7 @@ def generate_launch_description():
 
     # === Delay ROS2 nodes until CARLA is fully ready ===
     delayed_nodes = TimerAction(
-        period=30.0,  # seconds
+        period=5.0,  # seconds
         actions=[
             mediapipe_node,
             carla_node,
@@ -114,6 +114,5 @@ def generate_launch_description():
     return LaunchDescription([
         driver_id_arg,
         setup_network,   # ① Run the network setup
-        carla_process,   # ② Then run CARLA
         delayed_nodes,   # ③ Then start ROS2 nodes
     ])
