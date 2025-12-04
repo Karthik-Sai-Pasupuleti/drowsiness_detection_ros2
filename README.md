@@ -279,3 +279,10 @@ center_of_mass:
   y: 0.0
   z: 0.0
 ---
+
+. ~/ros2_humble/install/local_setup.bash
+camera node launch: ros2 launch spinnaker_camera spinnaker_cam.launch.py
+
+# install cv_bridge and vision_opencv
+sudo apt update
+sudo apt install ros-humble-cv-bridge ros-humble-vision-opencv

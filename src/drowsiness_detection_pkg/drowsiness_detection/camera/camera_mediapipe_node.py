@@ -11,7 +11,6 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
 from drowsiness_detection_msg.msg import EarMarValue
 from cv_bridge import CvBridge
-import PySpin
 import threading
 import cv2
 import numpy as np
@@ -22,17 +21,7 @@ from mediapipe.tasks.python import vision
 from .utils import calculate_avg_ear, mouth_aspect_ratio
 
 
-class DeviceEventHandler(PySpin.DeviceEventHandler):
-    """Handles camera device events (optional for debugging)."""
-    def __init__(self, event_name="EventExposureEnd"):
-        super().__init__()
-        self.event_name = event_name
-        self.count = 0
 
-    def OnDeviceEvent(self, event_name):
-        if event_name == self.event_name:
-            self.count += 1
-            print(f"Device event {event_name} triggered ({self.count})")
 
 
 class CameraMediapipeNode(Node):
@@ -42,8 +31,9 @@ class CameraMediapipeNode(Node):
         super().__init__("camera_mediapipe_node")
 
         # === ROS Publishers ===
-        self.image_pub = self.create_publisher(Image, "/camera/image_raw", qos_profile_sensor_data)
+        # self.image_pub = self.create_publisher(Image, "/camera/mediapipe_annotated", 10)
         self.metrics_pub = self.create_publisher(EarMarValue, "/ear_mar", 10)
+        self.create_subscription(Image, "/camera/image_raw", self.image_callback, 10)
         self.bridge = CvBridge()
 
         # === Parameters ===
@@ -81,35 +71,8 @@ class CameraMediapipeNode(Node):
         self.RIGHT_EYE = [33, 159, 158, 133, 153, 145]
         self.MOUTH = [78, 81, 13, 311, 308, 402, 14, 178]
 
-        # === PySpin Camera Setup ===
-        self.system = PySpin.System.GetInstance()
-        self.cameras = self.system.GetCameras()
-        if not self.cameras.GetSize():
-            self.get_logger().error("No FLIR cameras detected.")
-            raise RuntimeError("No FLIR cameras detected.")
 
-        self.cam = self.cameras[0]
-        self.get_logger().info(f"Using camera: {self.cam.GetUniqueID()}")
-        self.cam.Init()
-
-        # Configure camera (clean method)
-        self.configure_camera(
-            exposure_us=20000.0,
-            gain=5.0,
-            fps=30.0
-        )
-
-        # === Start acquisition ===
-        self.cam.BeginAcquisition()
-
-        # Optional event handler
-        self.event_handler = DeviceEventHandler()
-        self.cam.RegisterEventHandler(self.event_handler)
-
-        # === Timer-based acquisition ===
-        self.create_timer(self.frame_period, self.camera_timer_callback)
-
-        # === Worker Thread for Mediapipe ===
+        # Worker thread for Mediapipe processing
         self.running = True
         self.worker_thread = threading.Thread(target=self.worker_loop, daemon=True)
         self.worker_thread.start()
@@ -117,116 +80,19 @@ class CameraMediapipeNode(Node):
 
         self.get_logger().info("Camera + Mediapipe node started (timer mode).")
 
-    # -------------------------------------------------------------------------
-    # === CAMERA CONFIGURATION METHOD ===
-    # -------------------------------------------------------------------------
-    def configure_camera(
-        self,
-        exposure_us=15000.0,   # 15 ms = 66 FPS theoretical max
-        fps=30.0,
-        gain=5.0,
-    ):
-        """Configures FLIR camera (BGR8 only) with exposure, gain, ROI, and FPS."""
-        self.get_logger().info("=== Configuring FLIR camera (BGR8 mode) ===")
 
-        nodemap = self.cam.GetNodeMap()
-
-        # --- Pixel format (force BGR8) ---
+    def image_callback(self, msg: Image):
+        """Receive input camera frames from ROS and put them in queue."""
         try:
-            if PySpin.IsAvailable(self.cam.PixelFormat) and PySpin.IsWritable(self.cam.PixelFormat):
-                self.cam.PixelFormat.SetValue(PySpin.PixelFormat_BGR8)
-                self.get_logger().info("Pixel format set to BGR8.")
-            else:
-                self.get_logger().warn("PixelFormat not available or writable.")
-        except PySpin.SpinnakerException as e:
-            self.get_logger().warn(f"Failed to set pixel format: {e}")
-
-        # --- Auto modes ---
-        try:
-            if PySpin.IsAvailable(self.cam.ExposureAuto):
-                self.cam.ExposureAuto.SetValue(PySpin.ExposureAuto_Off)
-            if PySpin.IsAvailable(self.cam.GainAuto):
-                self.cam.GainAuto.SetValue(PySpin.GainAuto_Continuous)
-                self.get_logger().info("GainAuto set to Continuous.")
-        except PySpin.SpinnakerException as e:
-            self.get_logger().warn(f"Error setting auto modes: {e}")
-
-        # --- Exposure ---
-        try:
-            # Exposure time must be < 1/FPS to avoid frame overlap
-            exposure_limit = (1e6 / fps) * 0.9  # 90% of frame time
-            exposure_us = min(exposure_us, exposure_limit)
-            self.cam.ExposureTime.SetValue(exposure_us)
-            self.get_logger().info(f"Exposure time set to {exposure_us:.1f} µs.")
-        except PySpin.SpinnakerException:
-            self.get_logger().warn("ExposureTime not writable.")
-
-        # --- Gain ---
-        try:
-            if PySpin.IsAvailable(self.cam.Gain) and PySpin.IsWritable(self.cam.Gain):
-                self.cam.Gain.SetValue(gain)
-                self.get_logger().info(f"Manual gain set to {gain:.2f} dB.")
-        except PySpin.SpinnakerException:
-            self.get_logger().warn("Gain not writable.")
-
-        # --- Frame rate ---
-        try:
-            if PySpin.IsAvailable(self.cam.AcquisitionFrameRateEnable):
-                self.cam.AcquisitionFrameRateEnable.SetValue(True)
-
-            max_fps = self.cam.AcquisitionFrameRate.GetMax()
-            fps_to_set = min(fps, max_fps)
-            self.cam.AcquisitionFrameRate.SetValue(fps_to_set)
-            self.get_logger().info(f"Requested frame rate: {fps_to_set:.2f} FPS (max {max_fps:.2f}).")
-        except PySpin.SpinnakerException as e:
-            self.get_logger().warn(f"Error setting frame rate: {e}")
-
-        # --- Acquisition mode ---
-        try:
-            self.cam.AcquisitionMode.SetValue(PySpin.AcquisitionMode_Continuous)
-            self.get_logger().info("Acquisition mode set to Continuous.")
-        except PySpin.SpinnakerException as e:
-            self.get_logger().warn(f"Error setting acquisition mode: {e}")
-
-        # --- Report actual resulting FPS ---
-        try:
-            resulting_fps = self.cam.AcquisitionResultingFrameRate.GetValue()
-            self.get_logger().info(f"Actual resulting frame rate: {resulting_fps:.2f} FPS.")
-        except PySpin.SpinnakerException:
-            self.get_logger().warn("Unable to read resulting FPS.")
-
-        self.get_logger().info("=== Camera configuration complete ===")
-
-    # -------------------------------------------------------------------------
-    # Camera Acquisition (Timer Callback)
-    # -------------------------------------------------------------------------
-    def camera_timer_callback(self):
-        """Timer-based acquisition (~60 FPS)."""
-        try:
-            image_result = self.cam.GetNextImage()
-            if image_result.IsIncomplete():
-                self.get_logger().warn(f"Incomplete image: {image_result.GetImageStatus()}")
-                image_result.Release()
-                return
-
-            img_cv = image_result.GetNDArray()
-            image_result.Release()
-
-            # Add to queue (drop oldest if full)
+            img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
             try:
-                self.frame_queue.put_nowait(img_cv)
+                self.frame_queue.put_nowait(img)
             except Full:
                 self.frame_queue.get_nowait()
-                self.frame_queue.put_nowait(img_cv)
-
-        except PySpin.SpinnakerException as ex:
-            self.get_logger().error(f"Spinnaker error: {ex}")
+                self.frame_queue.put_nowait(img)
         except Exception as e:
-            self.get_logger().error(f"Unexpected camera error: {e}")
+            self.get_logger().error(f"Camera callback error: {e}")
 
-    # -------------------------------------------------------------------------
-    # Worker Thread: Mediapipe Processing
-    # -------------------------------------------------------------------------
     def worker_loop(self):
         while self.running and rclpy.ok():
             while self.frame_queue.qsize() > 1:
@@ -277,15 +143,15 @@ class CameraMediapipeNode(Node):
             self.metrics_pub.publish(ear_mar_msg)
 
             # === Publish annotated frame ===
-            resized_frame = cv2.resize(rgb_frame, (640, 480), interpolation=cv2.INTER_AREA)
-            img_msg = self.bridge.cv2_to_imgmsg(resized_frame, encoding="rgb8")
-            img_msg.header.stamp = self.get_clock().now().to_msg()
-            img_msg.header.frame_id = "camera_optical_frame"
-            self.image_pub.publish(img_msg)
+            # resized_frame = cv2.resize(rgb_frame, (640, 480), interpolation=cv2.INTER_AREA)
+            # img_msg = self.bridge.cv2_to_imgmsg(resized_frame, encoding="rgb8")
+            # img_msg.header.stamp = self.get_clock().now().to_msg()
+            # img_msg.header.frame_id = "camera_optical_frame"
+            # self.image_pub.publish(img_msg)
 
             # === Write video frame ===
             if self.video_writer.isOpened():
-                self.video_writer.write(resized_frame)
+                self.video_writer.write(rgb_frame)
 
         except Exception as e:
             self.get_logger().error(f"Mediapipe processing error: {e}")
