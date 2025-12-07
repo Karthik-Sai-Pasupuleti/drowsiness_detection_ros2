@@ -17,7 +17,7 @@ setup(
         ("share/" + package_name, ["package.xml"]),
         (os.path.join("share", package_name, "launch"), glob("launch/*.py")),
         (
-            "share/drowsiness_detection/bot/configs",
+            os.path.join("share", package_name, "bot", "configs"),
             [
                 "drowsiness_detection/bot/configs/prompt.toml",
                 "drowsiness_detection/bot/configs/schema.json",
@@ -46,6 +46,10 @@ setup(
             "carla_node = drowsiness_detection.carla.carla_manual_control:main",
             "driver_assistance_node = drowsiness_detection.main:main",
             "drowsiness_gui = drowsiness_detection.labelling.app_v2:main",
+            
+            # --- NEW HEART RATE NODE ---
+            "heartratenode = drowsiness_detection.heart_rate.heartratenode:main",
+            
             "steering_vibration_node = drowsiness_detection.bot.controls.steering_node:main",
             "speaker_node = drowsiness_detection.bot.controls.speaker_node:main",
             "fan_node = drowsiness_detection.bot.controls.fan_node:main",

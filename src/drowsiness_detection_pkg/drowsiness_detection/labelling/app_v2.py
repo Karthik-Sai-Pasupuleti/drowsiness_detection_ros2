@@ -2,29 +2,34 @@
 
 """
 This version implements a web application for real-time drowsiness detection labelling.
+
 It uses Flask for the web interface and ROS2 for data communication.
+
 The application allows multiple annotators to label drowsiness levels and actions,
 with support for auto-submission of previous labels if no new input is provided.
 It also includes tracking for the 'Save Video' action.
+
+CHANGELOG V3.4:
+- Integrated Heart Rate data handling (subscription to /heart_rate_bpm).
+- DataManager updated to store BPM (instant + smooth).
 """
+
 from waitress import serve
-
-
 import os
 import time
 import threading
 from collections import deque
 from copy import deepcopy
 import json
-
 from flask import Flask, render_template, Response, request, jsonify
 import cv2
-
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
+
+# Import custom messages
 from drowsiness_detection_msg.msg import (
     EarMarValue,
     LanePosition,
@@ -35,10 +40,10 @@ from drowsiness_detection_msg.msg import (
 )
 
 from drowsiness_detection_msg.srv import StoreLabels
-
 from std_msgs.msg import Float32MultiArray, String, Int32
 from carla_msgs.msg import CarlaEgoVehicleControl
 from cv_bridge import CvBridge
+
 
 # --- Data Manager ---
 class DataManager:
@@ -47,13 +52,21 @@ class DataManager:
     def __init__(self):
         self.lock = threading.Lock()
         self.latest_image = None
+        
+        # ROS Signal Buffers
         self.live_ear = deque(maxlen=360)
         self.live_mar = deque(maxlen=360)
         self.live_steering = deque(maxlen=360)
+        
+        # Heart Rate Data (NEW)
+        self.instant_bpm = 0.0
+        self.smooth_bpm = 0.0
+        
+        # Metrics & State
         self.latest_metrics = {}
         self.latest_phase_info = {}
         self.selected_labels_buffer = {}  # annotator -> labels
-        self.last_submitted_labels = {}  # annotator -> labels
+        self.last_submitted_labels = {}   # annotator -> labels
 
     def set_image(self, img):
         with self.lock:
@@ -75,6 +88,12 @@ class DataManager:
     def set_phase_info(self, phase_info):
         with self.lock:
             self.latest_phase_info.update(phase_info)
+            
+    # --- NEW: Setter for Heart Rate ---
+    def set_heart_rate(self, instant, smooth):
+        with self.lock:
+            self.instant_bpm = float(instant)
+            self.smooth_bpm = float(smooth)
 
     def get_all_live_data(self):
         with self.lock:
@@ -82,6 +101,13 @@ class DataManager:
                 "live_ear": list(self.live_ear),
                 "live_mar": list(self.live_mar),
                 "live_steering": list(self.live_steering),
+                
+                # Heart Rate Data for Frontend
+                "bpm": {
+                    "instant": self.instant_bpm,
+                    "smooth": self.smooth_bpm
+                },
+                
                 "latest_metrics": deepcopy(self.latest_metrics),
                 "phase_info": deepcopy(self.latest_phase_info),
                 "last_submitted_labels": deepcopy(self.last_submitted_labels),
@@ -90,14 +116,16 @@ class DataManager:
 
     def get_image(self):
         with self.lock:
-            return deepcopy(self.latest_image)
+            # Return copy to prevent threading issues
+            if self.latest_image is None:
+                return None
+            return self.latest_image.copy()
 
 
 # --- ROS Bridge ---
 class RosBridge(Node):
     # Voice commands & feedback constants
     VOICE_COMMANDS = "/home/user/voice_files/Trigger_1.mp3"
-
     VOICE_FEEDBACK = {
         "Yes": "/home/user/voice_files/joke.mp3",
         "No": "/home/user/voice_files/Feedback.mp3",
@@ -113,9 +141,11 @@ class RosBridge(Node):
         self.create_subscription(
             Image, "/camera/image_raw", self.cb_camera, qos_profile_sensor_data
         )
+
         self.create_subscription(
             EarMarValue, "/ear_mar", self.cb_earmar, qos_profile_sensor_data
         )
+
         self.create_subscription(
             CarlaEgoVehicleControl,
             "/carla/hero/vehicle_control_cmd",
@@ -130,250 +160,171 @@ class RosBridge(Node):
             10,
         )
         
-    
+        # --- NEW: Subscription to Heart Rate Node ---
+        self.create_subscription(
+            Float32MultiArray,
+            "/heart_rate_bpm",
+            self.cb_heart_rate,
+            10
+        )
+
         self.store_labels_client = self.create_client(StoreLabels, "store_labels")
 
-
-        # --- New subscriptions/publishers ---
+        # --- Publishers ---
         self.vibration_pub = self.create_publisher(Vibration, "/wheel_vibration", 10)
-
         self.fan_pub = self.create_publisher(Int32, "/fan_speed", 10)
         self.mp4_pub = self.create_publisher(String, "/audio_file", 10)
-        
+
         self.last_published_window_id = -1
-
-
         self.get_logger().info("ROS Bridge Node ready.")
 
-    # --- Steering vibration --
+    # --- Callbacks ---
+    def cb_camera(self, msg):
+        try:
+            cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+            self.data_manager.set_image(cv_image)
+        except Exception as e:
+            self.get_logger().error(f"Error converting image: {e}")
 
+    def cb_earmar(self, msg):
+        self.data_manager.set_ear_mar(msg.ear, msg.mar)
+
+    def cb_steering(self, msg):
+        self.data_manager.set_steering(msg.steer)
+        
+    def cb_heart_rate(self, msg):
+        """Callback for /heart_rate_bpm topic from heartratenode.py"""
+        try:
+            if len(msg.data) >= 2:
+                # msg.data[0] = Instant BPM, msg.data[1] = Smoothed BPM
+                self.data_manager.set_heart_rate(msg.data[0], msg.data[1])
+        except Exception as e:
+            self.get_logger().warn(f"Error processing heart rate msg: {e}")
+
+    def cb_window_phase(self, msg):
+        if len(msg.data) >= 2:
+            phase_info = {"window_id": int(msg.data[0]), "phase_index": int(msg.data[1])}
+            self.data_manager.set_phase_info(phase_info)
+
+            # Check if window ID changed -> trigger auto-submit for previous window
+            if phase_info["window_id"] != self.last_published_window_id:
+                self.last_published_window_id = phase_info["window_id"]
+                self.auto_submit_previous_labels(phase_info["window_id"])
+
+    def auto_submit_previous_labels(self, current_window_id):
+        # Logic to auto-submit labels for the PREVIOUS window if not submitted manually
+        prev_window = current_window_id - 1
+        if prev_window < 0:
+            return
+
+        with self.data_manager.lock:
+            annotators = list(self.data_manager.selected_labels_buffer.keys())
+
+        for annotator in annotators:
+            with self.data_manager.lock:
+                labels = self.data_manager.selected_labels_buffer.get(annotator)
+                if not labels:
+                    continue
+                # Mark as auto-submitted for tracking
+                labels["auto_submitted"] = True
+                labels["timestamp"] = time.time()
+            
+            # Call service to store these carried-over labels
+            self.call_store_labels_service(prev_window, annotator, labels, "auto_carryover")
+
+    def call_store_labels_service(self, window_id, annotator, labels_to_use, submission_type="manual"):
+        if not self.store_labels_client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().warn("StoreLabels service not available.")
+            return
+
+        req = StoreLabels.Request()
+        req.window_id = int(window_id)
+        
+        try:
+            # Prepare the message
+            labels_prepared = self.prepare_labels_for_saving(labels_to_use)
+            
+            ann_msg = AnnotatorLabels()
+            ann_msg.annotator_name = annotator
+            ann_msg.drowsiness_level = str(labels_prepared.get("drowsiness_level", "None"))
+            ann_msg.actions = labels_to_use.get("actions", [])
+            ann_msg.notes = labels_prepared.get("notes", "")
+            ann_msg.voice_feedback = str(labels_prepared.get("voice_feedback", ""))
+            ann_msg.submission_type = submission_type
+            
+            # Action Booleans
+            ann_msg.action_fan = bool(labels_prepared.get("fan", False))
+            ann_msg.action_voice_command = bool(labels_prepared.get("voice_command", False))
+            ann_msg.action_steering_vibration = bool(labels_prepared.get("steering_vibration", False))
+            ann_msg.action_save_video = bool(labels_prepared.get("action_save_video", False))
+
+            req.annotator_labels.append(ann_msg)
+
+            # Async call
+            future = self.store_labels_client.call_async(req)
+            future.add_done_callback(lambda fut: self._service_result(fut, window_id))
+
+        except Exception as e:
+            self.get_logger().error(f"Error preparing StoreLabels service request: {e}")
+
+    def _service_result(self, future, window_id):
+        try:
+            res = future.result()
+            if res.success:
+                self.get_logger().info(f"[SERVICE] Labels stored for window {window_id}")
+            else:
+                self.get_logger().warn(f"[SERVICE] Label store failed: {res.message}")
+        except Exception as e:
+            self.get_logger().error(f"Service call failed: {e}")
+
+    def prepare_labels_for_saving(self, labels):
+        prepared = deepcopy(labels)
+        # One-hot encode actions
+        act_list = labels.get("actions", [])
+        prepared["voice_command"] = 1 if "Voice Command" in act_list else 0
+        prepared["steering_vibration"] = 1 if "Steering Vibration" in act_list else 0
+        prepared["fan"] = 1 if "Fan" in act_list else 0
+        
+        # Voice feedback: Yes=1, No=0, Else=None
+        vf = labels.get("voice_feedback")
+        if vf == "Yes": prepared["voice_feedback"] = 1
+        elif vf == "No": prepared["voice_feedback"] = 0
+        else: prepared["voice_feedback"] = None
+        
+        # Video Flag & Auto Submit
+        prepared["action_save_video"] = int(prepared.get("video_save_requested", False))
+        prepared["auto_submitted"] = int(prepared.get("auto_submitted", 0))
+
+        # Remove temporary keys
+        for key in ["actions", "timestamp", "video_save_requested"]:
+            if key in prepared:
+                del prepared[key]
+        return prepared
+
+    # --- Action Methods ---
     def vibrate(self, duration: float, intensity: int):
-        """Publish vibration activation message."""
         out = Vibration()
         out.duration = float(duration)
         out.intensity = int(intensity)
         self.vibration_pub.publish(out)
 
-    # --- Voice commands ---
     def publish_mp4(self, file_path: str):
-        if not file_path or not os.path.isfile(file_path):
-            self.get_logger().warn(f"Invalid MP4 file path: {file_path}")
-            return
+        if not file_path: return
         msg = String()
         msg.data = file_path
         self.mp4_pub.publish(msg)
         self.get_logger().info(f"Published MP4 file path: {file_path}")
-
-    # --- Fan control ---
-    def set_fan_speed(self, speed_level: int):
-        """Set fan speed by publishing to the fan_speed topic."""
-
-        if speed_level not in [0, 1, 2, 3]:
-            self.get_logger().warn(f"Invalid fan speed level: {speed_level}")
-            return
-        self.get_logger().info(f"Setting fan speed to level {speed_level}")
-        ros_msg = Int32()
-        ros_msg.data = speed_level
-        self.fan_pub.publish(ros_msg)
-
-    # --- ROS Data callbacks ---
-    def cb_camera(self, msg):
-        try:
-            cv_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
-            self.data_manager.set_image(cv_img.copy())
-        except Exception as e:
-            self.get_logger().error(f"Camera error: {e}")
-
-    def cb_earmar(self, msg):
-        try:
-            self.data_manager.set_ear_mar(msg.ear_value, msg.mar_value)
-        except Exception as e:
-            self.get_logger().error(f"Error in ear_mar_callback: {e}")
-
-    def cb_steering(self, msg):
-        self.data_manager.set_steering(msg.steer)
-
-    def cb_window_phase(self, msg):
-        if len(msg.data) < 3:
-            return
-
-        phase = int(msg.data[0])
-        window_id = int(msg.data[1])
-        remaining_time = msg.data[2]
-
-        # Update internal state for the web UI
-        self.data_manager.set_phase_info({
-            "phase": phase,
-            "window_id": window_id,
-            "remaining_time": remaining_time,
-        })
-
-        # --- Trigger CombinedAnnotations publish when window just ended ---
-        if remaining_time <= 0.0 and window_id != self.last_published_window_id:
-            self.last_published_window_id = window_id
-            self.publish_combined_annotations(window_id)
-
-    def publish_combined_annotations(self, window_id: int):
-        """Combine annotator labels and send them to DriverAssistanceNode via StoreLabels service."""
-        try:
-            # Ensure service exists
-            if not hasattr(self, "store_labels_client"):
-                self.store_labels_client = self.create_client(StoreLabels, "store_labels")
-
-            if not self.store_labels_client.wait_for_service(timeout_sec=3.0):
-                self.get_logger().error("Service 'store_labels' not available.")
-                return
-
-            req = StoreLabels.Request()
-            req.window_id = window_id
-            req.annotator_labels = []
-
-            with self.data_manager.lock:
-                # union of annotators that ever submitted or currently have buffered data
-                annotators = set(self.data_manager.selected_labels_buffer.keys()) | set(
-                    self.data_manager.last_submitted_labels.keys()
-                )
-                if not annotators:
-                    annotators = {"default_annotator"}
-
-                for annotator in annotators:
-                    # --- Determine which label set to use ---
-                    if annotator in self.data_manager.selected_labels_buffer:
-                        labels_to_use = deepcopy(self.data_manager.selected_labels_buffer[annotator])
-
-                        # check if empty (no actual inputs)
-                        is_empty_label = (
-                            (not labels_to_use.get("drowsiness_level"))
-                            or labels_to_use["drowsiness_level"] in [None, "", "None"]
-                        ) and not labels_to_use.get("actions") and not labels_to_use.get("notes")
-
-                        if is_empty_label:
-                            # No new input → reuse last label if available
-                            if annotator in self.data_manager.last_submitted_labels:
-                                labels_to_use = deepcopy(self.data_manager.last_submitted_labels[annotator])
-                                labels_to_use["auto_submitted"] = True
-                                submission_type = "auto"
-                            else:
-                                # Brand new annotator with no previous label
-                                labels_to_use = {
-                                    "drowsiness_level": "None",
-                                    "actions": [],
-                                    "notes": "Auto-submitted: annotator inactive.",
-                                    "auto_submitted": True,
-                                    "voice_feedback": None,
-                                    "video_save_requested": False,
-                                }
-                                submission_type = "auto"
-                        else:
-                            # user provided manual labels
-                            submission_type = "manual"
-                            labels_to_use["auto_submitted"] = False
-                            self.data_manager.last_submitted_labels[annotator] = deepcopy(labels_to_use)
-
-                        # remove buffer entry after using it
-                        del self.data_manager.selected_labels_buffer[annotator]
-                    else:
-                        # no new buffer → reuse last known label
-                        if annotator in self.data_manager.last_submitted_labels:
-                            labels_to_use = deepcopy(self.data_manager.last_submitted_labels[annotator])
-                            labels_to_use["auto_submitted"] = True
-                            submission_type = "auto"
-                        else:
-                            # fallback to safe default
-                            labels_to_use = {
-                                "drowsiness_level": "None",
-                                "actions": [],
-                                "notes": "Auto-submitted: annotator inactive.",
-                                "auto_submitted": True,
-                                "voice_feedback": None,
-                                "video_save_requested": False,
-                            }
-                            submission_type = "auto"
-
-                    # ensure field exists before next step
-                    labels_to_use["submission_type"] = submission_type
-
-                    # convert to ROS message format
-                    labels_prepared = prepare_labels_for_saving(labels_to_use)
-                    ann_msg = AnnotatorLabels()
-                    ann_msg.annotator_name = annotator
-                    ann_msg.drowsiness_level = str(labels_prepared.get("drowsiness_level", "None"))
-                    ann_msg.actions = labels_to_use.get("actions", [])
-                    ann_msg.notes = labels_prepared.get("notes", "")
-                    ann_msg.voice_feedback = str(labels_prepared.get("voice_feedback", ""))
-                    ann_msg.submission_type = submission_type
-                    # ann_msg.auto_submitted = bool(labels_prepared.get("auto_submitted", False))
-                    # ann_msg.is_flagged = bool(labels_prepared.get("is_flagged", False))
-                    ann_msg.action_fan = bool(labels_prepared.get("fan", False))
-                    ann_msg.action_voice_command = bool(labels_prepared.get("voice_command", False))
-                    ann_msg.action_steering_vibration = bool(labels_prepared.get("steering_vibration", False))
-                    ann_msg.action_save_video = bool(labels_prepared.get("action_save_video", False))
-                    req.annotator_labels.append(ann_msg)
-
-            # async call
-            future = self.store_labels_client.call_async(req)
-
-            def _on_result(fut):
-                try:
-                    res = fut.result()
-                    if res.success:
-                        self.get_logger().info(
-                            f"[SERVICE] Labels successfully stored for window {window_id} ({len(req.annotator_labels)} annotators)"
-                        )
-                    else:
-                        self.get_logger().warn(
-                            f"[SERVICE] Label store failed for window {window_id}: {res.message}"
-                        )
-                except Exception as e:
-                    self.get_logger().error(f"Service call failed: {e}")
-
-            future.add_done_callback(_on_result)
-
-        except Exception as e:
-            self.get_logger().error(f"Error preparing StoreLabels service request: {e}")
+        
+    def set_fan_speed(self, speed):
+        msg = Int32()
+        msg.data = int(speed)
+        self.fan_pub.publish(msg)
 
 
-
-# MODIFIED: Added action_save_video conversion and removal of original key
-def prepare_labels_for_saving(labels):
-    prepared = deepcopy(labels)
-
-    # One-hot encode actions (already separate columns)
-    prepared["voice_command"] = 1 if "Voice Command" in labels.get("actions", []) else 0
-    prepared["steering_vibration"] = (
-        1 if "Steering Vibration" in labels.get("actions", []) else 0
-    )
-    prepared["fan"] = 1 if "Fan" in labels.get("actions", []) else 0
-
-    # Voice feedback: force int or default 0
-    vf = labels.get("voice_feedback")
-    if vf == "Yes":
-        prepared["voice_feedback"] = 1
-    elif vf == "No":
-        prepared["voice_feedback"] = 0
-    else:
-        prepared["voice_feedback"] = None  # safe default
-
-    # NEW: Convert the video_save_requested boolean flag to action_save_video integer flag
-    prepared["action_save_video"] = int(prepared.get("video_save_requested", False)) 
-
-    # Auto-submitted: convert bool → int
-    prepared["auto_submitted"] = int(prepared.get("auto_submitted", 0))
-
-    # Remove raw 'actions' list and temporary keys to avoid h5py object dtype error
-    for key in ["actions", "timestamp", "video_save_requested"]: 
-        if key in prepared:
-            del prepared[key]
-    return prepared
-
-
-# --- Flask ---
+# --- Flask App Setup ---
 data_manager = DataManager()
 app = Flask(__name__)
-
-# Global reference to the RosBridge node for use in Flask routes
 ros_bridge_node = None
-
 
 def ros_spin():
     global ros_bridge_node
@@ -391,14 +342,15 @@ def ros_spin():
             ros_bridge_node.destroy_node()
         rclpy.shutdown()
 
-
+# Start ROS thread immediately
 threading.Thread(target=ros_spin, daemon=True).start()
 
+
+# --- FLASK ROUTES ---
 
 @app.route("/")
 def index():
     return render_template("index_v2.html")
-
 
 @app.route("/video_feed")
 def video_feed():
@@ -407,139 +359,74 @@ def video_feed():
             frame = data_manager.get_image()
             if frame is not None:
                 _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                yield (
-                    b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n"
-                )
+                yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n")
             time.sleep(0.03)
-
     return Response(gen(), mimetype="multipart/x-mixed-replace; boundary=frame")
-
 
 @app.route("/get_live_data")
 def get_live_data():
     return jsonify(data_manager.get_all_live_data())
 
-
-# --- NEW ROUTE: For real-time action activation ---
 @app.route("/activate_action", methods=["POST"])
 def activate_action():
     req = request.get_json() or {}
     action = req.get("action")
     feedback = req.get("feedback")
-
+    
     if ros_bridge_node is None:
         return jsonify({"status": "error", "message": "ROS node not ready."}), 500
 
     def handle_action(action, feedback):
-        """Run the requested action in a separate thread."""
         if action == "Steering Vibration":
-            ros_bridge_node.get_logger().info(
-                "Steering vibration action triggered via web interface."
-            )
+            ros_bridge_node.get_logger().info("Triggering Vibration via UI")
             ros_bridge_node.vibrate(duration=2.0, intensity=30)
-
         elif action == "Voice Command":
-            ros_bridge_node.get_logger().info(
-                "Voice command action triggered via web interface (Main command)."
-            )
-            # Play main voice command only
-            voice_text = RosBridge.VOICE_COMMANDS
-            ros_bridge_node.publish_mp4(voice_text)
-
+            ros_bridge_node.get_logger().info("Triggering Voice Command via UI")
+            ros_bridge_node.publish_mp4(RosBridge.VOICE_COMMANDS)
         elif action == "Voice Feedback":
             if feedback in RosBridge.VOICE_FEEDBACK:
-                ros_bridge_node.get_logger().info(
-                    f"Voice command feedback triggered via web interface: {feedback}"
-                )
-                feedback_file = RosBridge.VOICE_FEEDBACK[feedback]
-                ros_bridge_node.publish_mp4(feedback_file)
-            else:
-                ros_bridge_node.get_logger().warn(
-                    f"Voice Feedback action triggered with invalid feedback: {feedback}"
-                )
-
+                ros_bridge_node.publish_mp4(RosBridge.VOICE_FEEDBACK[feedback])
         elif action == "Fan":
-            ros_bridge_node.get_logger().info("Fan action triggered via web interface.")
             ros_bridge_node.set_fan_speed(3)
-
         else:
             ros_bridge_node.get_logger().warn(f"Unknown action: {action}")
 
-    # Run the action in a separate thread so Flask doesn't block
     threading.Thread(target=handle_action, args=(action, feedback), daemon=True).start()
-
     return jsonify({"status": "success", "message": f"Action '{action}' triggered."})
 
-
-# MODIFIED: Added video_save_requested extraction and storage
 @app.route("/store_selected_labels", methods=["POST"])
 def store_selected_labels():
     req = request.get_json() or {}
-    window_id = req.get("window_id")
     annotator = req.get("annotator_name")
-    voice_feedback = req.get("voice_feedback", "")
     
-    # Extract the video save status from the request
-    video_save_requested = req.get("video_save_requested", False)
+    if not annotator:
+        return jsonify({"status": "error", "message": "annotator_name required"}), 400
 
-    if window_id is None or annotator is None:
-        return (
-            jsonify(
-                {"status": "error", "message": "window_id and annotator_name required"}
-            ),
-            400,
-        )
-
-    drowsiness_level = req.get("drowsiness_level")
-    notes = req.get("notes", "")
-
-    # The actions sent from the frontend are now just for storage
-    actions_to_store = req.get("actions", [])
-
+    # Buffer the labels
     buffered = {
-        "drowsiness_level": drowsiness_level,
-        "actions": actions_to_store,
-        "notes": notes,
-        "voice_feedback": voice_feedback,
+        "drowsiness_level": req.get("drowsiness_level"),
+        "actions": req.get("actions", []),
+        "notes": req.get("notes", ""),
+        "voice_feedback": req.get("voice_feedback", ""),
+        "video_save_requested": req.get("video_save_requested", False),
         "timestamp": time.time(),
         "auto_submitted": False,
-        # Store the status in the buffer
-        "video_save_requested": video_save_requested,
     }
 
     with data_manager.lock:
         data_manager.selected_labels_buffer[annotator] = buffered
-
+        
     return jsonify({"status": "success", "annotator_used": annotator})
-
 
 @app.route("/submit_labels", methods=["POST"])
 def submit_labels():
-    # The submit button now only stores the labels, it no longer triggers actions.
-    # The actions are triggered by the individual button presses.
+    # Reuse storage logic
     return store_selected_labels()
-
 
 @app.route("/save_video_segment", methods=["POST"])
 def save_video_segment():
-    """
-    Placeholder route for the Save Video button.
-    The actual flagging is handled in store_selected_labels,
-    this route is primarily for frontend feedback.
-    """
-    req = request.get_json() or {}
-    window_id = req.get("window_id")
-    annotator = req.get("annotator_name")
-
-    # The main logic for storing the video flag is in store_selected_labels.
-    # This route just acknowledges the action was requested.
-    
-    if ros_bridge_node is not None:
-         ros_bridge_node.get_logger().info(f"Video save requested by {annotator} for window {window_id}.")
-
-    return jsonify({"status": "success", "message": "Video save request recorded."})
-
+    # Just an acknowledgment route, logic handled in store_selected_labels via 'video_save_requested' flag
+    return jsonify({"status": "success"})
 
 
 def main():
@@ -548,6 +435,5 @@ def main():
     except KeyboardInterrupt:
         print("Shutting down web interface.")
 
-
 if __name__ == "__main__":
-    main() 
+    main()

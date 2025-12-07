@@ -11,6 +11,7 @@ include_directories(
   include
   /opt/spinnaker/include
   ${OpenCV_INCLUDE_DIRS}
+  ${cv_bridge_INCLUDE_DIRS}
 )
 
 add_executable(spinnaker_cam src/spinnaker_cam.cpp)
