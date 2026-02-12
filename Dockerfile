@@ -1,81 +1,57 @@
-# Base ROS 2 image (Humble)
-FROM ros:humble
+# Base image with ROS 2 Humble and Ubuntu 22.04
+FROM osrf/ros:humble-desktop
 
-# Set non-interactive frontend for apt
+# Set environment variables
+ENV ROS_DISTRO=humble
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies for building ROS 2 workspace
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
-    python3-colcon-common-extensions \
-    python3-rosdep \
     python3-pip \
     build-essential \
-    git \
-    lsb-release \
-    curl \
-    gnupg2 \
-    # The clean-up is better here to keep the layer small
+    usbutils \
+    ros-humble-cv-bridge \
+    ros-humble-image-transport \
+    ros-humble-sensor-msgs \
+    ros-humble-std-msgs \
+    ros-humble-geometry-msgs \
+    ros-humble-message-filters \
+    ros-humble-spinnaker-camera-driver \
+    dos2unix \
     && rm -rf /var/lib/apt/lists/*
 
-# Initialize rosdep
-RUN rosdep init || true
-RUN rosdep update
+# Set working directory
+WORKDIR /root/ws/
 
-# Create ROS 2 workspace
-WORKDIR /ros2_ws
-
-RUN apt-get update && apt-get install -y \
-    libusb-1.0-0 \
-    libusb-1.0-0-dev \
-    libavcodec-extra58 \
-    libavformat58 \
-    libswscale5 \
-    libavutil56
-
-# Copy Spinnaker .deb installers from temp folder
-COPY temp /tmp/spinnaker
-
-RUN export DEBIAN_FRONTEND=noninteractive && \
-    echo "flir-eula flir-eula/accepted boolean true" | debconf-set-selections && \
-    cd /tmp/spinnaker/spinnaker-4.2.0.88-amd64-22.04-pkg/spinnaker-4.2.0.88-amd64 && \
-    dpkg -i libgentl_*.deb \
-    libspinnaker_*.deb \
-    libspinnaker-dev_*.deb \
-    libspinnaker-c_*.deb \
-    libspinnaker-c-dev_*.deb \
-    libspinvideo_*.deb \
-    libspinvideo-dev_*.deb \
-    libspinvideo-c_*.deb \
-    libspinvideo-c-dev_*.deb \
-    spinupdate_*.deb \
-    spinupdate-dev_*.deb \
-    spinnaker_*.deb \
-    spinnaker-doc_*.deb || true && \
-    apt-get install -fy && \
-    sh configure_usbfs.sh && \
-    sh configure_spinnaker.sh && \
-    sh configure_spinnaker_paths.sh && \
-    sh configure_gentl_paths.sh $BITS
-# Copy source code
+# Copy the source code
 COPY src ./src
 
-# Copy requirements.txt and install Python dependencies
-COPY src/drowsiness_detection_pkg/drowsiness_detection/requirements.txt ./requirements.txt
-RUN sudo pip3 install --no-cache-dir -r requirements.txt
+# Mark the broken/missing-dependency spinnaker_camera package to be ignored by colcon
+RUN touch src/spinnaker_camera/COLCON_IGNORE
 
-# Install ROS dependencies for all packages
-# --- MODIFIED: Added apt-get update before rosdep install ---
-RUN apt-get update && rosdep install --from-paths src --ignore-src -r -y
+# Install Python requirements
+# The user specified exact path: src\drowsiness_detection_pkg\drowsiness_detection\requirements.txt
+# In Docker it will be src/drowsiness_detection_pkg/drowsiness_detection/requirements.txt
+RUN pip3 install -r src/drowsiness_detection_pkg/drowsiness_detection/requirements.txt
 
-RUN pip3 install --no-cache-dir "setuptools<65"
+# Install rosdep dependencies
+RUN apt-get update && rosdep update && \
+    rosdep install --from-paths src --ignore-src -r -y
 
 # Build the workspace
-RUN . /opt/ros/humble/setup.sh && colcon build --symlink-install
+RUN . /opt/ros/humble/setup.sh && \
+    colcon build --symlink-install
 
-# Set bash as default shell and source ROS 2 + workspace
-SHELL ["/bin/bash", "-c"]
-RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc \
-    && echo "source /ros2_ws/install/setup.bash" >> ~/.bashrc
+# Copy and setup entrypoint script
+COPY start.sh /start.sh
+RUN dos2unix /start.sh && chmod +x /start.sh
 
-# Default command
-CMD ["bash"]
+# Source the setup.bash in .bashrc so manual execs work nicely
+RUN echo "source /opt/ros/humble/setup.bash" >> /root/.bashrc && \
+    echo "source /root/ws/install/setup.bash" >> /root/.bashrc
+
+# Expose the Flask port
+EXPOSE 5000
+
+# Set the entrypoint
+ENTRYPOINT ["/start.sh"]

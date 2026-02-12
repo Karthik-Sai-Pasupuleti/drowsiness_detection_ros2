@@ -1,0 +1,14 @@
+services:
+  drowsiness_app:
+    build: .
+    image: drowsiness_ros2
+    container_name: drowsiness_app
+    network_mode: host # Recommended for ROS 2 to communicate easily
+    privileged: true # Required for USB camera access
+    volumes:
+      - /dev/bus/usb:/dev/bus/usb # Map USB devices
+    restart: unless-stopped
+    # If not using network_mode: host, we would need:
+    # ports:
+    #   - "5000:5000"
+    # But host mode automatically exposes all ports.
