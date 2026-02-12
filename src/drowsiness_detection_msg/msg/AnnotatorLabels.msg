@@ -12,3 +12,5 @@ bool action_fan
 bool action_voice_command
 bool action_steering_vibration
 bool action_save_video
+float32 instant_bpm
+float32 smooth_bpm

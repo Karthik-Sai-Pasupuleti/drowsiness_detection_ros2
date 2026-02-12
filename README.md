@@ -72,7 +72,7 @@ Before running the ROS2 launch files, you need to start the CARLA simulator:
 2. [Installation guide](https://medium.com/@pasupuletikarthiksai/a-step-by-step-guide-to-installing-carla-on-windows-c092a469e6f6) 
 2. Launch CARLA with ROS2 support:
 ```bash
-./CarlaUE4.sh --ros2
+./CarlaUE4.sh --ros2 -RenderOffScreen
 ```
 
 ### Driver Assistance System
@@ -282,7 +282,15 @@ center_of_mass:
 
 . ~/ros2_humble/install/local_setup.bash
 camera node launch: ros2 launch spinnaker_camera spinnaker_cam.launch.py
-
+camera serial number: 24364301
 # install cv_bridge and vision_opencv
 sudo apt update
 sudo apt install ros-humble-cv-bridge ros-humble-vision-opencv
+
+deactivate  # if in venv
+source /opt/ros/humble/setup.bash
+source install/local_setup.bash
+ros2 launch drowsiness_detection_pkg drowsiness.launch.py
+
+
+# Cark
