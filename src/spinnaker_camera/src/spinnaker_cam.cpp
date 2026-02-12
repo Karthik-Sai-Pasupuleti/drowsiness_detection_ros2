@@ -1,3 +1,24 @@
+<<<<<<< HEAD
+#include <chrono>
+#include <memory>
+#include <string>
+#include <vector>
+
+// ROS 2 Core
+#include <cv_bridge/cv_bridge.h>
+#include <image_transport/image_transport.hpp>
+#include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/image_encodings.hpp>
+#include <sensor_msgs/msg/image.hpp>
+
+// OpenCV
+#include <opencv2/opencv.hpp>
+
+// Your provided header
+#include "flir_controller.h"
+
+using namespace std::chrono_literals;
+=======
 #include <memory>
 
 #include <string>
@@ -29,8 +50,61 @@
 using namespace std::chrono_literals;
  
 class FlirRosNode : public rclcpp::Node {
+>>>>>>> 85e85655909bd890fe462db0d0efd1ab98672903
 
 public:
+<<<<<<< HEAD
+  SpinnakerCamNode() : Node("spinnaker_camera") {
+    declare_parameters();
+
+    try {
+      camera_controller_ = std::make_shared<FLIRCameraController>();
+      std::string device_id;
+      this->get_parameter("device_id", device_id);
+
+      if (device_id.empty()) {
+        RCLCPP_ERROR(this->get_logger(), "Parameter 'device_id' is required.");
+        throw std::runtime_error("Device ID missing");
+      }
+
+      RCLCPP_INFO(this->get_logger(), "Looking for device: %s",
+                  device_id.c_str());
+
+      SensorStatus status = camera_controller_->set_device_id(device_id);
+      if (!status)
+        throw std::runtime_error(status.msg);
+      status = camera_controller_->open();
+      if (!status)
+        throw std::runtime_error("Failed to open camera: " + status.msg);
+
+      apply_configuration();
+
+      pub_ =
+          image_transport::create_camera_publisher(this, "/camera/image_raw");
+
+      camera_controller_->set_frame_callback(std::bind(
+          &SpinnakerCamNode::publish_frame, this, std::placeholders::_1));
+
+      status = camera_controller_->start();
+      if (!status)
+        throw std::runtime_error("Failed to start acquisition: " + status.msg);
+
+      RCLCPP_INFO(this->get_logger(),
+                  "Spinnaker camera node started successfully.");
+
+    } catch (const std::exception &e) {
+      RCLCPP_FATAL(this->get_logger(), "Initialization failed: %s", e.what());
+      rclcpp::shutdown();
+    }
+  }
+
+  ~SpinnakerCamNode() {
+    if (camera_controller_) {
+      camera_controller_->stop();
+      camera_controller_->close();
+    }
+  }
+=======
 
     FlirRosNode() : Node("flir_camera_node") {
 
@@ -43,6 +117,7 @@ public:
         try {
 
             camera_controller_ = std::make_shared<FLIRCameraController>();
+>>>>>>> 85e85655909bd890fe462db0d0efd1ab98672903
 
             std::string device_id;
 
@@ -117,6 +192,132 @@ public:
     }
  
 private:
+<<<<<<< HEAD
+  std::shared_ptr<FLIRCameraController> camera_controller_;
+  image_transport::CameraPublisher pub_;
+  sensor_msgs::msg::CameraInfo camera_info_msg_;
+
+  int target_width_;
+  int target_height_;
+
+  void declare_parameters() {
+    this->declare_parameter("device_id", "");
+    this->declare_parameter("PixelFormat", "BGR8");
+    this->declare_parameter("TargetWidth", 0);
+    this->declare_parameter("TargetHeight", 0);
+    this->declare_parameter("GainAuto", "Off");
+    this->declare_parameter("Gain", 10.0);
+    this->declare_parameter("ExposureAuto", "Off");
+    this->declare_parameter("ExposureTime", 10000.0);
+    this->declare_parameter("BalanceWhiteAuto", "Continuous");
+    this->declare_parameter("GammaEnable", 0.45);
+    this->declare_parameter("Brightness", 0.0);
+  }
+
+  void apply_configuration() {
+    RCLCPP_INFO(this->get_logger(), "Applying camera configuration...");
+
+    target_width_ = this->get_parameter("TargetWidth").as_int();
+    target_height_ = this->get_parameter("TargetHeight").as_int();
+
+    if (target_width_ > 0 && target_height_ > 0) {
+      RCLCPP_INFO(this->get_logger(), "Software Resizing Enabled: %dx%d",
+                  target_width_, target_height_);
+    }
+
+    // --- NEW: Reset to Max Resolution (No more 100000 crashes) ---
+    SensorStatus s = camera_controller_->reset_to_max_resolution();
+    if (!s) {
+      RCLCPP_WARN(this->get_logger(), "Failed to reset resolution: %s",
+                  s.msg.c_str());
+    } else {
+      RCLCPP_INFO(this->get_logger(), "Camera reset to full sensor size.");
+    }
+    // -----------------------------------------------------------
+
+    auto set_prop = [&](const std::string &key, const nlohmann::json &val) {
+      SensorStatus s = camera_controller_->set_property(key, val);
+      if (!s) {
+        RCLCPP_WARN(this->get_logger(), "Failed to set %s: %s", key.c_str(),
+                    s.msg.c_str());
+      } else {
+        RCLCPP_INFO(this->get_logger(), "Set %s to %s", key.c_str(),
+                    val.dump().c_str());
+      }
+    };
+
+    set_prop("PixelFormat", this->get_parameter("PixelFormat").as_string());
+
+    set_prop("ExposureAuto", this->get_parameter("ExposureAuto").as_string());
+    if (this->get_parameter("ExposureAuto").as_string() == "Off") {
+      set_prop("ExposureTime", this->get_parameter("ExposureTime").as_double());
+    }
+
+    set_prop("GainAuto", this->get_parameter("GainAuto").as_string());
+    if (this->get_parameter("GainAuto").as_string() == "Off") {
+      set_prop("Gain", this->get_parameter("Gain").as_double());
+    }
+
+    set_prop("BalanceWhiteAuto",
+             this->get_parameter("BalanceWhiteAuto").as_string());
+
+    double gamma_val = this->get_parameter("GammaEnable").as_double();
+    set_prop("GammaEnable", true);
+    set_prop("Gamma", gamma_val);
+
+    double brightness = this->get_parameter("Brightness").as_double();
+    set_prop("BlackLevel", brightness);
+  }
+
+  void publish_frame(const SensorFrameView &view) {
+    if (!view.data || view.size_bytes == 0)
+      return;
+
+    size_t pixels = view.width * view.height;
+    size_t bpp = (pixels > 0) ? (view.size_bytes / pixels) : 0;
+    std::string encoding;
+    int cv_type;
+
+    if (bpp == 1) {
+      encoding = sensor_msgs::image_encodings::MONO8;
+      cv_type = CV_8UC1;
+    } else if (bpp == 2) {
+      encoding = sensor_msgs::image_encodings::MONO16;
+      cv_type = CV_16UC1;
+    } else if (bpp == 3) {
+      encoding = sensor_msgs::image_encodings::BGR8;
+      cv_type = CV_8UC3;
+    } else {
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                           "Unsupported bytes-per-pixel: %zu. Skipping.", bpp);
+      return;
+    }
+
+    cv::Mat frame(view.height, view.width, cv_type, (void *)view.data);
+
+    cv::Mat final_frame;
+    if (target_width_ > 0 && target_height_ > 0) {
+      cv::resize(frame, final_frame, cv::Size(target_width_, target_height_), 0,
+                 0, cv::INTER_LINEAR);
+    } else {
+      final_frame = frame;
+    }
+
+    std_msgs::msg::Header header;
+    header.stamp = this->now();
+    header.frame_id = "camera";
+
+    sensor_msgs::msg::Image::SharedPtr msg =
+        cv_bridge::CvImage(header, encoding, final_frame).toImageMsg();
+
+    camera_info_msg_.header = header;
+    camera_info_msg_.width = final_frame.cols;
+    camera_info_msg_.height = final_frame.rows;
+
+    pub_.publish(
+        msg, std::make_shared<sensor_msgs::msg::CameraInfo>(camera_info_msg_));
+  }
+=======
 
     std::shared_ptr<FLIRCameraController> camera_controller_;
 
@@ -310,9 +511,18 @@ private:
 
     }
 
+>>>>>>> 85e85655909bd890fe462db0d0efd1ab98672903
 };
  
 int main(int argc, char **argv) {
+<<<<<<< HEAD
+  rclcpp::init(argc, argv);
+  auto node = std::make_shared<SpinnakerCamNode>();
+  rclcpp::spin(node);
+  rclcpp::shutdown();
+  return 0;
+}
+=======
 
     rclcpp::init(argc, argv);
 
@@ -326,3 +536,4 @@ int main(int argc, char **argv) {
 
 }
  
+>>>>>>> 85e85655909bd890fe462db0d0efd1ab98672903

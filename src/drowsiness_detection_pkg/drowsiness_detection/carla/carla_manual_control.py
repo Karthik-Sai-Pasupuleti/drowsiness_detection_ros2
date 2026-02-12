@@ -1059,7 +1059,7 @@ class CameraManager(object):
                 (
                     carla.Transform(
                         carla.Location(
-                            x=0.0 * bound_x,  # move camera forward
+                            x=-0.3 * bound_x,  # move camera forward
                             y=0.0 * bound_y,  # centered
                             z=1.5 * bound_z,  # higher above hood
                         ),
@@ -1409,7 +1409,7 @@ def main():
     argparser.add_argument(
         "--res",
         metavar="WIDTHxHEIGHT",
-        default="1920x1200",
+        default="3840x1080",
         help="window resolution (default: 1280x720) or 2560x1080",
     )
     argparser.add_argument(
