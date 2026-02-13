@@ -24,3 +24,6 @@ gevent
 setuptools<58
 evdev
 carla==0.9.16
+flask
+waitress
+numpy<2

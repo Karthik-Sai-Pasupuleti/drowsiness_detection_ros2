@@ -114,7 +114,7 @@ class DriverAssistanceNode(Node):
         super().__init__("driver_assistance_node")
 
         # declare driver_id
-        self.declare_parameter("driver_id", "maria")
+        self.declare_parameter("driver_id", "test_driver")
         self.driver_id = self.get_parameter("driver_id").value
         
         # Parameters
@@ -157,9 +157,9 @@ class DriverAssistanceNode(Node):
 
         # ROS I/O
         self.create_subscription(EarMarValue, "/ear_mar", self.ear_mar_callback, qos_profile_sensor_data)
-        self.create_subscription(CarlaEgoVehicleControl, "/carla/hero/vehicle_control_cmd", self.steering_callback, 10)
+        self.create_subscription(CarlaEgoVehicleControl, "/carla/ego/vehicle_control_cmd", self.steering_callback, 10)
         self.create_subscription(LanePosition, "/carla/lane_offset", self.lane_offset_callback, qos_profile_sensor_data)
-        self.create_subscription(Image, "/camera/image_raw", self.cb_camera, qos_profile_sensor_data)
+        self.create_subscription(Image, "/flir_camera/image_raw", self.cb_camera, qos_profile_sensor_data)
         self.create_subscription(CombinedAnnotations, "/driver_assistance/combined_annotations", self.combined_annotations_callback, 10)
         
         # --- Heart Rate Subscriptions ---

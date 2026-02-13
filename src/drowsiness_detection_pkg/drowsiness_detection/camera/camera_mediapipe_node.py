@@ -33,7 +33,7 @@ class CameraMediapipeNode(Node):
         # === ROS Publishers ===
         # self.image_pub = self.create_publisher(Image, "/camera/mediapipe_annotated", 10)
         self.metrics_pub = self.create_publisher(EarMarValue, "/ear_mar", 10)
-        self.create_subscription(Image, "/camera/image_raw", self.image_callback, 10)
+        self.create_subscription(Image, "/flir_camera/image_raw", self.image_callback, 10)
         self.bridge = CvBridge()
 
         # === Parameters ===
@@ -56,7 +56,7 @@ class CameraMediapipeNode(Node):
 
         # === Mediapipe Setup ===
         base_options = python.BaseOptions(
-            model_asset_path="/home/user/ros2_ws/src/models/face_landmarker.task",
+            model_asset_path="/root/ws/src/models/face_landmarker.task",
             delegate=python.BaseOptions.Delegate.CPU,
         )
         options = vision.FaceLandmarkerOptions(

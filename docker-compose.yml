@@ -1,14 +1,63 @@
 services:
+  spinnaker_camera:
+    build:
+      context: .
+      dockerfile: Dockerfile.spinnaker
+    image: karthiksai2403/spinnaker_camera:v1.0
+    container_name: spinnaker_camera
+    network_mode: host
+    ipc: host
+    privileged: true
+    volumes:
+      - /dev/bus/usb:/dev/bus/usb
+    restart: unless-stopped
+    # Default command launches the driver. Override if needed.
+    # command: ros2 launch spinnaker_camera_driver driver_node.launch.py camera_type:=blackfly_s serial:="'YOUR_SERIAL'"
+    environment:
+      - CAMERA_SERIAL=${CAMERA_SERIAL:-24364301} # Pass Camera Serial to container
+
+  carla_sim:
+    image: carlasim/carla:0.9.16
+    container_name: carla-ros2
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+    network_mode: host
+    ipc: host
+    user: "1000:1000"
+    environment:
+      - DISPLAY=${DISPLAY}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    command: bash CarlaUE4.sh --ros2
+
   drowsiness_app:
     build: .
-    image: drowsiness_ros2
+    image: karthiksai2403/drowsiness_app:v1.0
     container_name: drowsiness_app
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
     network_mode: host # Recommended for ROS 2 to communicate easily
+    ipc: host
     privileged: true # Required for USB camera access
     volumes:
       - /dev/bus/usb:/dev/bus/usb # Map USB devices
+      - /dev/input:/dev/input # Map input devices (joystick/keyboard)
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw # Map X11 socket for GUI
+    environment:
+      - DISPLAY=${DISPLAY}
+      - DRIVER_ID=${DRIVER_ID:-test_driver} # Pass Driver ID to container
     restart: unless-stopped
-    # If not using network_mode: host, we would need:
-    # ports:
-    #   - "5000:5000"
-    # But host mode automatically exposes all ports.

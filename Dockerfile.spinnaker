@@ -1,0 +1,34 @@
+# Must use Humble base for Humble packages
+FROM osrf/ros:humble-desktop
+
+ENV ROS_DISTRO=humble
+ENV DEBIAN_FRONTEND=noninteractive
+SHELL ["/bin/bash", "-c"]
+
+# 1. Install System Dependencies & USB/IP Client
+RUN apt-get update && apt-get install -y \
+    ros-humble-spinnaker-camera-driver \
+    git \
+    linux-tools-generic \
+    hwdata \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Setup Workspace
+WORKDIR /root/ws/src
+RUN git clone --branch humble-devel https://github.com/ros-drivers/flir_camera_driver
+
+WORKDIR /root/ws
+
+# 3. Build & Source (Combined to ensure environment is seen)
+RUN apt-get update && rosdep update && \
+    rosdep install --from-paths src --ignore-src -y && \
+    source /opt/ros/humble/setup.bash && \
+    colcon build --symlink-install && \
+    rm -rf /var/lib/apt/lists/*
+
+# 4. Final Environment Setup
+RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc && \
+    echo "source /root/ws/install/setup.bash" >> ~/.bashrc
+
+# Start the driver automatically when the container runs
+ENTRYPOINT ["/bin/bash", "-c", "source /root/ws/install/setup.bash && ros2 launch spinnaker_camera_driver driver_node.launch.py camera_type:=blackfly_s serial:=\"'${CAMERA_SERIAL}'\""]

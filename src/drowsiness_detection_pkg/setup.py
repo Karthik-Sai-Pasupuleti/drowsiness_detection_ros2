@@ -45,7 +45,7 @@ setup(
             "mediapipe_node = drowsiness_detection.camera.camera_mediapipe_node:main",
             "carla_node = drowsiness_detection.carla.carla_manual_control:main",
             "driver_assistance_node = drowsiness_detection.main:main",
-            "drowsiness_gui = drowsiness_detection.labelling.app_v3:main",
+            "drowsiness_gui = drowsiness_detection.labelling.app:main",
             
             # --- NEW HEART RATE NODE ---
             "heartratenode = drowsiness_detection.heart_rate.heartratenode:main",

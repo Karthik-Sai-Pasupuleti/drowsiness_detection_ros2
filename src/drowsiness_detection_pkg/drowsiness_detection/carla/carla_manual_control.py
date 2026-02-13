@@ -253,8 +253,8 @@ class World(object):
         blueprint.set_attribute("role_name", self.actor_role_name)
         #############################################################################################
         # update the role of the ego actor
-        blueprint.set_attribute("role_name", "hero")
-        blueprint.set_attribute("ros_name", "hero")
+        blueprint.set_attribute("role_name", "ego")
+        blueprint.set_attribute("ros_name", "ego")
 
         # blueprint.set_attribute("role_name", self.actor_role_name)
         if blueprint.has_attribute("terramechanics"):
@@ -391,7 +391,7 @@ class DualControl(Node):
         super().__init__("carla_control_node")
         # created the publisher with the same topic which is used in the carla default setting.
         self._ctrl_pub = self.create_publisher(
-            CarlaEgoVehicleControl, "/carla/hero/vehicle_control_cmd", 1
+            CarlaEgoVehicleControl, "/carla/ego/vehicle_control_cmd", 1
         )
         self.lane_offset_pub = self.create_publisher(
             LanePosition, "carla/lane_offset", 1
@@ -401,7 +401,6 @@ class DualControl(Node):
             self._control = carla.VehicleControl()
             world.player.set_autopilot(self._autopilot_enabled)
                             
-        
     
         elif isinstance(world.player, carla.Walker):
             self._control = carla.WalkerControl()
@@ -1363,6 +1362,11 @@ def game_loop(args):
                 
             _, lateral_offset = collect_carla_data(world)
             controller.publish_controls_and_lane(lateral_offset)
+            
+            # --- APPLY CONTROL TO ACTOR ---
+            if world.player:
+                world.player.apply_control(controller._control)
+            
             pygame.display.flip()
 
     finally:
@@ -1427,8 +1431,8 @@ def main():
     argparser.add_argument(
         "--rolename",
         metavar="NAME",
-        default="hero",
-        help='actor role name (default: "hero")',
+        default="ego",
+        help='actor role name (default: "ego")',
     )
     argparser.add_argument(
         "--gamma",

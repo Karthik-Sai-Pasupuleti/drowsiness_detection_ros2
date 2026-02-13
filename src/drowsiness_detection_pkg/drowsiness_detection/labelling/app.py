@@ -163,7 +163,7 @@ class RosBridge(Node):
 
         # --- Subscriptions ---
         self.create_subscription(
-            Image, "/camera/image_raw", self.cb_camera, qos_profile_sensor_data
+            Image, "/flir_camera/image_raw", self.cb_camera, qos_profile_sensor_data
         )
 
         self.create_subscription(
@@ -172,7 +172,7 @@ class RosBridge(Node):
 
         self.create_subscription(
             CarlaEgoVehicleControl,
-            "/carla/hero/vehicle_control_cmd",
+            "/carla/ego/vehicle_control_cmd",
             self.cb_steering,
             qos_profile_sensor_data,
         )
@@ -361,6 +361,7 @@ class RosBridge(Node):
         return prepared
 
     # --- Action Methods ---
+    
     def vibrate(self, duration: float, intensity: int):
         out = Vibration()
         out.duration = float(duration)
@@ -409,7 +410,7 @@ threading.Thread(target=ros_spin, daemon=True).start()
 
 @app.route("/")
 def index():
-    return render_template("index_v4.html")
+    return render_template("index.html")
 
 @app.route("/video_feed")
 def video_feed():
