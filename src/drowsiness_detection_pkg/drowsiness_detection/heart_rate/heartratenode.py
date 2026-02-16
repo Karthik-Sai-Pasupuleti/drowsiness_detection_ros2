@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3chekc
 """
 HeartRateNode (PPG + Battery Check)
 - Connects to BioPoint (MAC: D3:9E:07:2D:DA:A1)
