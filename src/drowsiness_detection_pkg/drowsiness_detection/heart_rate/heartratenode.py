@@ -1,7 +1,7 @@
-#!/usr/bin/env python3chekc
+#!/usr/bin/env python3
 """
 HeartRateNode (PPG + Battery Check)
-- Connects to BioPoint (MAC: D3:9E:07:2D:DA:A1)
+- Connects to BioPoint
 - Checks Battery % on startup
 - Publishes Raw PPG & BPM
 """
@@ -21,7 +21,6 @@ try:
 except ImportError:
     SIFI_AVAILABLE = False
 
-TARGET_MAC = "D3:9E:07:2D:DA:A1"
 ACTUAL_FS = 200
 WINDOW_SEC = 10
 BUFFER_SIZE = ACTUAL_FS * WINDOW_SEC
@@ -49,30 +48,81 @@ class KalmanFilter1D:
         self.P = (1 - K) * P_p
         return self.x
 
-def estimate_heart_rate(ppg_data, fs):
+def estimate_heart_rate(ppg_data, fs, logger=None):
     if len(ppg_data) < fs * 2:
+        if logger:
+            logger.warn(f"[HR] Insufficient data: {len(ppg_data)} samples")
         return None, []
     
-    sig_arr = signal.detrend(np.array(ppg_data))
-    b, a = signal.butter(3, [0.5, 4], "bandpass", fs=fs)
-    filtered = signal.filtfilt(b, a, sig_arr)
+    ppg_arr = np.array(ppg_data, dtype=np.float64)
+    
+    if logger:
+        logger.info(f"[HR] Signal range: {np.min(ppg_arr):.2f} to {np.max(ppg_arr):.2f}, Mean: {np.mean(ppg_arr):.2f}, Std: {np.std(ppg_arr):.2f}")
+    
+    sig_arr = signal.detrend(ppg_arr)
+    
+    try:
+        b, a = signal.butter(3, [0.5, 4.0], btype="bandpass", fs=fs)
+        filtered = signal.filtfilt(b, a, sig_arr)
+    except Exception as e:
+        if logger:
+            logger.error(f"[HR] Filtering failed: {e}")
+        return None, []
     
     sig_range = np.ptp(filtered)
-    if sig_range < 0.05:
+    if logger:
+        logger.info(f"[HR] Filtered signal range: {sig_range:.4f}")
+    
+    if sig_range < 0.001:
+        if logger:
+            logger.warn(f"[HR] Signal range too small: {sig_range:.4f}")
         return None, filtered
-
-    peaks, _ = signal.find_peaks(filtered, distance=fs * 0.3, prominence=sig_range * 0.1)
+    
+    min_distance = int(fs * 0.4)
+    prominence_threshold = sig_range * 0.05
+    
+    if logger:
+        logger.info(f"[HR] Peak detection: min_distance={min_distance}, prominence={prominence_threshold:.4f}")
+    
+    peaks, properties = signal.find_peaks(
+        filtered, 
+        distance=min_distance, 
+        prominence=prominence_threshold,
+        height=np.mean(filtered)
+    )
+    
+    if logger:
+        logger.info(f"[HR] Found {len(peaks)} peaks")
+    
     if len(peaks) < 3:
+        if logger:
+            logger.warn(f"[HR] Insufficient peaks found: {len(peaks)}")
         return None, filtered
-
+    
     ibi = np.diff(peaks) / fs
     median_ibi = np.median(ibi)
+    
+    if logger:
+        logger.info(f"[HR] IBI median: {median_ibi:.3f}s, range: {np.min(ibi):.3f}-{np.max(ibi):.3f}s")
+    
     valid_ibis = ibi[np.abs(ibi - median_ibi) < 0.5 * median_ibi]
     
     if len(valid_ibis) == 0:
+        if logger:
+            logger.warn(f"[HR] No valid IBIs after filtering")
         return None, filtered
     
-    bpm = 60.0 / np.mean(valid_ibis)
+    mean_ibi = np.mean(valid_ibis)
+    bpm = 60.0 / mean_ibi
+    
+    if bpm < 40 or bpm > 200:
+        if logger:
+            logger.warn(f"[HR] BPM out of range: {bpm:.1f}")
+        return None, filtered
+    
+    if logger:
+        logger.info(f"[HR] Valid IBIs: {len(valid_ibis)}, BPM: {bpm:.1f}")
+    
     return bpm, filtered
 
 def extract_battery_value(bat_data):
@@ -82,8 +132,7 @@ def extract_battery_value(bat_data):
     return float(bat_data)
 
 class RobustSifiSensor:
-    def __init__(self, mac=TARGET_MAC):
-        self.mac = mac
+    def __init__(self):
         self.sb = sbp.SifiBridge() if SIFI_AVAILABLE else None
         self.battery_cache = 0.0
 
@@ -91,10 +140,7 @@ class RobustSifiSensor:
         if not self.sb:
             return False
         try:
-            try:
-                success = self.sb.connect(self.mac)
-            except:
-                success = self.sb.connect()
+            success = self.sb.connect()
             
             if not success:
                 return False
@@ -190,14 +236,14 @@ class HeartRateNode(Node):
             self.get_logger().error("sifi_bridge_py not installed")
             return
 
-        sensor = RobustSifiSensor(TARGET_MAC)
+        sensor = RobustSifiSensor()
         calc_buffer = deque(maxlen=BUFFER_SIZE)
         last_hr_time = 0
         battery_read = False
         buffer_fill_start_time = None
         
         while self._running and rclpy.ok():
-            self.get_logger().info(f"Connecting to {TARGET_MAC}...")
+            self.get_logger().info("Connecting to BioPoint sensor...")
             
             if sensor.connect_and_configure():
                 if not battery_read:
@@ -240,7 +286,7 @@ class HeartRateNode(Node):
                             elapsed_time = now - buffer_fill_start_time
                             
                             if elapsed_time >= HR_CALC_INTERVAL and len(calc_buffer) >= BUFFER_SIZE:
-                                hr, _ = estimate_heart_rate(list(calc_buffer), ACTUAL_FS)
+                                hr, _ = estimate_heart_rate(list(calc_buffer), ACTUAL_FS, logger=self.get_logger())
                                 if hr:
                                     with self.lock:
                                         self._instant_bpm = round(hr, 1)
