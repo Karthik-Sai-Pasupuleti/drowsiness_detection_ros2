@@ -1,6 +1,10 @@
 services:
   spinnaker_camera:
-    image: karthiksai2403/spinnaker_camera:v1.0
+    # Build from the new Dockerfile.spinnaker we created
+    build:
+      context: .
+      dockerfile: Dockerfile.spinnaker
+    image: karthiksai2403/spinnaker_camera:v2.0
     container_name: spinnaker_camera
     network_mode: host
     ipc: host
@@ -8,10 +12,20 @@ services:
     volumes:
       - /dev/bus/usb:/dev/bus/usb
     restart: unless-stopped
-    # Default command launches the driver. Override if needed.
-    # command: ros2 launch spinnaker_camera_driver driver_node.launch.py camera_type:=blackfly_s serial:="'YOUR_SERIAL'"
     environment:
-      - CAMERA_SERIAL=${CAMERA_SERIAL:-24364301} # Pass Camera Serial to container
+      # Camera Configuration
+      - CAMERA_SERIAL=${CAMERA_SERIAL:-auto} # 'auto' or specific serial
+      - CAMERA_TYPE=firefly # Matches launch_all.sh default
+
+      # Decimation & Performance
+      - DECIMATION=2 # Enable decimation (1=Off, 2=Half, 4=Quarter)
+      - FPS=60.0 # Target Frame Rate
+
+      # Image Settings
+      - EXPOSURE_AUTO=Off # Manual exposure or 'Continuous' (auto) 
+      - EXPOSURE_TIME=5000.0 # 5000 us
+      - GAIN_AUTO=Off # Manual gain 'Continuous' (auto) 
+      - GAIN=30 # 30 dB
 
   carla_sim:
     image: carlasim/carla:0.9.16
