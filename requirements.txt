@@ -24,6 +24,7 @@ gevent
 setuptools<58
 evdev
 carla==0.9.16
+sifi_bridge_py==1.3.0
 flask
 waitress
 numpy<2

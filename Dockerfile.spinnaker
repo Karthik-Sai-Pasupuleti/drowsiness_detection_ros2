@@ -6,75 +6,29 @@ ENV DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-c"]
 
 # 1. Install System Dependencies & USB/IP Client
-# ADDED: ros-humble-image-proc for decimation support
 RUN apt-get update && apt-get install -y \
     ros-humble-spinnaker-camera-driver \
-    ros-humble-image-proc \
-    ros-humble-image-transport-plugins \
     git \
     linux-tools-generic \
     hwdata \
-    wget \
-    nano \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Setup Workspace
 WORKDIR /root/ws/src
-<<<<<<< HEAD
 RUN git clone https://github.com/Karthik-Sai-Pasupuleti/flir_camera_driver.git
-=======
-
-# Clone the forked repository
-RUN git clone https://github.com/dootdootABM/flir_camera_driver.git
->>>>>>> 7961e8278f38a72d303b458af73f2c2b4f5c2a01
 
 WORKDIR /root/ws
 
-# 3. Build & Source
-# Using --packages-select to ensure we build the specific driver packages from the fork
+# 3. Build & Source (Combined to ensure environment is seen)
 RUN apt-get update && rosdep update && \
     rosdep install --from-paths src --ignore-src -y && \
     source /opt/ros/humble/setup.bash && \
-    colcon build --packages-select spinnaker_camera_driver spinnaker_synchronized_camera_driver flir_camera_msgs && \
+    colcon build --symlink-install && \
     rm -rf /var/lib/apt/lists/*
 
-# 4. Create Startup Script (mimics launch_all.sh)
-RUN echo '#!/bin/bash' > /start_camera.sh && \
-    echo 'set -e' >> /start_camera.sh && \
-    echo 'source /opt/ros/humble/setup.bash' >> /start_camera.sh && \
-    echo 'source /root/ws/install/setup.bash' >> /start_camera.sh && \
-    echo '' >> /start_camera.sh && \
-    echo '# Configuration with defaults from launch_all.sh' >> /start_camera.sh && \
-    echo 'CAMERA_TYPE=${CAMERA_TYPE:-firefly}' >> /start_camera.sh && \
-    echo 'SERIAL=${CAMERA_SERIAL:-auto}' >> /start_camera.sh && \
-    echo 'EXPOSURE_AUTO=${EXPOSURE_AUTO:-Off}' >> /start_camera.sh && \
-    echo 'EXPOSURE_TIME=${EXPOSURE_TIME:-5000.0}' >> /start_camera.sh && \
-    echo 'GAIN_AUTO=${GAIN_AUTO:-Off}' >> /start_camera.sh && \
-    echo 'GAIN=${GAIN:-30}' >> /start_camera.sh && \
-    echo 'FPS=${FPS:-60.0}' >> /start_camera.sh && \
-    echo 'DECIMATION=${DECIMATION:-2}' >> /start_camera.sh && \
-    echo '' >> /start_camera.sh && \
-    echo 'echo "---------------------------------------"' >> /start_camera.sh && \
-    echo 'echo "Launching Camera Driver with Decimation..."' >> /start_camera.sh && \
-    echo 'echo "  Camera:   $CAMERA_TYPE (Serial: $SERIAL)"' >> /start_camera.sh && \
-    echo 'echo "  Exposure: $EXPOSURE_AUTO / $EXPOSURE_TIME us"' >> /start_camera.sh && \
-    echo 'echo "  Gain:     $GAIN_AUTO / $GAIN dB"' >> /start_camera.sh && \
-    echo 'echo "  FPS:      $FPS Hz"' >> /start_camera.sh && \
-    echo 'echo "  Decim:    $DECIMATION"' >> /start_camera.sh && \
-    echo '' >> /start_camera.sh && \
-    echo 'exec ros2 launch spinnaker_camera_driver driver_node.launch.py \' >> /start_camera.sh && \
-    echo '  camera_type:=$CAMERA_TYPE \' >> /start_camera.sh && \
-    echo '  serial:=$SERIAL \' >> /start_camera.sh && \
-    echo '  exposure_auto:=$EXPOSURE_AUTO \' >> /start_camera.sh && \
-    echo '  exposure_time:=$EXPOSURE_TIME \' >> /start_camera.sh && \
-    echo '  gain_auto:=$GAIN_AUTO \' >> /start_camera.sh && \
-    echo '  decimation:=$DECIMATION \' >> /start_camera.sh && \
-    echo '  gain:=$GAIN \' >> /start_camera.sh && \
-    echo '  fps:=$FPS' >> /start_camera.sh && \
-    chmod +x /start_camera.sh
-
-# 5. Final Environment Setup
+# 4. Final Environment Setup
 RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc && \
     echo "source /root/ws/install/setup.bash" >> ~/.bashrc
 
-ENTRYPOINT ["/start_camera.sh"]
+# Start the driver automatically when the container runs
+ENTRYPOINT ["/bin/bash", "-c", "source /root/ws/install/setup.bash && ros2 launch spinnaker_camera_driver driver_node.launch.py camera_type:=blackfly_s serial:=\"'${CAMERA_SERIAL}'\""]

@@ -1,5 +1,8 @@
 services:
   spinnaker_camera:
+    build:
+      context: .
+      dockerfile: Dockerfile.spinnaker
     image: karthiksai2403/spinnaker_camera:v2.0
     container_name: spinnaker_camera
     network_mode: host
@@ -33,9 +36,10 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=all
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-    command: bash CarlaUE4.sh --ros2
+    command: bash CarlaUE4.sh --ros2 -nosound
 
   drowsiness_app:
+    build: .
     image: karthiksai2403/drowsiness_app:v1.0
     container_name: drowsiness_app
     runtime: nvidia
@@ -53,6 +57,9 @@ services:
       - /dev/bus/usb:/dev/bus/usb # Map USB devices
       - /dev/input:/dev/input # Map input devices (joystick/keyboard)
       - /tmp/.X11-unix:/tmp/.X11-unix:rw # Map X11 socket for GUI
+      # bluetooth
+      - /var/run/dbus:/var/run/dbus
+      - /dev:/dev
     environment:
       - DISPLAY=${DISPLAY}
       - DRIVER_ID=${DRIVER_ID:-test_driver} # Pass Driver ID to container
