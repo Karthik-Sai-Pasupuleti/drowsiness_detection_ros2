@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y \
 
 # 2. Setup Workspace
 WORKDIR /root/ws/src
-RUN git clone --branch humble-devel https://github.com/ros-drivers/flir_camera_driver
+RUN git clone https://github.com/Karthik-Sai-Pasupuleti/flir_camera_driver.git
 
 WORKDIR /root/ws
 

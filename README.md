@@ -293,4 +293,7 @@ source install/local_setup.bash
 ros2 launch drowsiness_detection_pkg drowsiness.launch.py
 
 
-# Cark
+# start docker
+xhost +local:docker
+
+
