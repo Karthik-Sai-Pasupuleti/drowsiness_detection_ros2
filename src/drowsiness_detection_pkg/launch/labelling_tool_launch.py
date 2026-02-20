@@ -37,11 +37,48 @@ def generate_launch_description():
                 parameters=[{"driver_id": driver_id}],  
             ),
             Node(
-            package='drowsiness_detection_pkg',
-            executable='drowsiness_gui',
-            name='drowsiness_gui',
-            output='screen'
-        ),
-
+                package='drowsiness_detection_pkg',
+                executable='drowsiness_gui',
+                name='drowsiness_gui',
+                output='screen'
+            ),
+            Node(
+                package="drowsiness_detection_pkg",
+                executable="heartratenode",
+                name="heart_rate_node",
+                output="screen",
+            ),
+        
+            # Node(
+            #    package="drowsiness_detection_pkg",
+            #    executable="steering_wheel_ffb_node",
+            #    name="steering_wheel_ffb_node",
+            #    output="screen",
+            # ),
+            # Node(
+            #    package="drowsiness_detection_pkg",
+            #    executable="steering_wheel_ffb_node",
+            #    name="steering_wheel_ffb_node",
+            #    output="screen",
+            # ),
+            # Node(
+            #     package="drowsiness_detection_pkg",
+            #     executable="steering_vibration_node",
+            #     name="steering_vibration_node",
+            #     output="screen",
+            # ),
+            # Node(
+            #     package="drowsiness_detection_pkg",
+            #     executable="speaker_node",
+            #     name="speaker_node",
+            #     output="screen",
+            # ),
+            # Node(
+            #     package="drowsiness_detection_pkg",
+            #     executable="fan_node",
+            #     name="fan_node",
+            #     output="screen",
+            # )
+            
         ]
     )
