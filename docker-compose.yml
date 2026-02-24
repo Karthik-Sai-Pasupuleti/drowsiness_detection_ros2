@@ -65,4 +65,7 @@ services:
       - DISPLAY=${DISPLAY}
       - DRIVER_ID=${DRIVER_ID:-test_driver} # Pass Driver ID to container
       - DATA_DIR=/root/ws/drowsiness_data
+
+      - XAUTHORITY=/root/.Xauthority
+      - XDG_RUNTIME_DIR=/tmp/runtime-root
     restart: unless-stopped
