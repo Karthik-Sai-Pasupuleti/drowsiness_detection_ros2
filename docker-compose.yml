@@ -40,9 +40,13 @@ services:
 
   drowsiness_app:
     build: .
-    image: karthiksai2403/drowsiness_app:v1.0
+    image: karthiksai2403/drowsiness_app:v2.0
     container_name: drowsiness_app
     runtime: nvidia
+
+    devices:
+      - /dev/hidraw4:/dev/logitech_g29
+
     deploy:
       resources:
         reservations:
