@@ -32,7 +32,7 @@ from drowsiness_detection.camera.utils import (
 # -------------------------------------------------------------------------
 def save_to_csv(window_id, window_data, labels_dict, driver_id="driver_1"):
     """Append metrics and labels for each window to a CSV file."""
-    base_folder = "drowsiness_data"
+    base_folder = os.environ.get("DATA_DIR", "drowsiness_data")
     driver_folder = os.path.join(base_folder, driver_id)
     os.makedirs(driver_folder, exist_ok=True)
     csv_path = os.path.join(driver_folder, "session_metrics.csv")
@@ -152,7 +152,8 @@ class DriverAssistanceNode(Node):
         self.video_writer = None
         self.current_video_path = None
         self.finished_video_paths = {}
-        self.video_base_dir = os.path.join("drowsiness_data", self.driver_id, "videos")
+        data_dir = os.environ.get("DATA_DIR", "drowsiness_data")
+        self.video_base_dir = os.path.join(data_dir, self.driver_id, "videos")
         os.makedirs(self.video_base_dir, exist_ok=True)
 
         # ROS I/O

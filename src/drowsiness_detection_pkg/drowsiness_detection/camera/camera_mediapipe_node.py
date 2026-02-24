@@ -48,7 +48,8 @@ class CameraMediapipeNode(Node):
         self.frame_queue = Queue(maxsize=4)
 
         # === Video Recording Setup ===
-        output_path = os.path.join("drowsiness_data", self.driver_id, "videos", "full_video.mp4")
+        data_dir = os.environ.get("DATA_DIR", "drowsiness_data")
+        output_path = os.path.join(data_dir, self.driver_id, "videos", "full_video.mp4")
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         self.video_writer = cv2.VideoWriter(output_path, fourcc, self.target_fps, (640, 480))

@@ -60,7 +60,9 @@ services:
       # bluetooth
       - /var/run/dbus:/var/run/dbus
       - /dev:/dev
+      - ${DATA_DIR_HOST:-./drowsiness_data}:/root/ws/drowsiness_data
     environment:
       - DISPLAY=${DISPLAY}
       - DRIVER_ID=${DRIVER_ID:-test_driver} # Pass Driver ID to container
+      - DATA_DIR=/root/ws/drowsiness_data
     restart: unless-stopped
