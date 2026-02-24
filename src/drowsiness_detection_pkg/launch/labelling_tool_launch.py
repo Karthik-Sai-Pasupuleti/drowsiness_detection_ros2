@@ -61,18 +61,18 @@ def generate_launch_description():
             #    name="steering_wheel_ffb_node",
             #    output="screen",
             # ),
-            # Node(
-            #     package="drowsiness_detection_pkg",
-            #     executable="steering_vibration_node",
-            #     name="steering_vibration_node",
-            #     output="screen",
-            # ),
-            # Node(
-            #     package="drowsiness_detection_pkg",
-            #     executable="speaker_node",
-            #     name="speaker_node",
-            #     output="screen",
-            # ),
+            Node(
+                package="drowsiness_detection_pkg",
+                executable="steering_vibration_node",
+                name="steering_vibration_node",
+                output="screen",
+            ),
+            Node(
+                package="drowsiness_detection_pkg",
+                executable="speaker_node",
+                name="speaker_node",
+                output="screen",
+            ),
             # Node(
             #     package="drowsiness_detection_pkg",
             #     executable="fan_node",
