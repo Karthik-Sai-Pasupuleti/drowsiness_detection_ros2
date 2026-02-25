@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.spinnaker
-    image: karthiksai2403/spinnaker_camera:v2.0
+    image: karthiksai2403/spinnaker_camera:v1.0
     container_name: spinnaker_camera
     network_mode: host
     ipc: host
