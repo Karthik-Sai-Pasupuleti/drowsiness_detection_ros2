@@ -190,8 +190,8 @@ Launch the labelling gui
 Allow port 5000 through the firewall:
 
 ```bash
-sudo ip addr add 192.168.0.10/24 dev enp130s0 
-sudo ip link set enp130s0 up
+sudo ip addr add 192.168.0.10/24 dev enp97s0 
+sudo ip link set enp97s0 up
 ```
 Check the ip in linux workstation
 ```bash
