@@ -28,85 +28,76 @@ from drowsiness_detection.camera.utils import (
 )
 
 
+import h5py
+import numpy as np
+import time
+
 # -------------------------------------------------------------------------
-# CSV save utility
+# HDF5 save utility (Single File, Multiple Windows)
 # -------------------------------------------------------------------------
-def save_to_csv(window_id, window_data, labels_dict, driver_id="driver_1"):
-    """Append metrics and labels for each window to a CSV file."""
+def save_to_hdf5(window_id, window_data, labels_dict, driver_id="driver_1"):
+    """
+    Append metrics, arrays, and labels for each window to a single HDF5 file.
+    It creates a new 'Group' for each window ID so arrays do not clash.
+    """
     base_folder = os.environ.get("DATA_DIR", "drowsiness_data")
     driver_folder = os.path.join(base_folder, driver_id)
     os.makedirs(driver_folder, exist_ok=True)
-    csv_path = os.path.join(driver_folder, "session_metrics.csv")
+    
+    # We use ONE file for the whole session
+    h5_path = os.path.join(driver_folder, "session_data.h5")
 
-    # 1. Prepare the row data
-    row = {
-        "window_id": window_id,
-        "initial_timestamp": time.time(), # timestamp of the first frame in the window unix timestamp
-        "video": f"window_{window_id}.mp4",
+    # Open file in 'append' mode. It creates it if it doesn't exist.
+    with h5py.File(h5_path, "a") as f:
         
-        # Computed Metrics
-        "metric_PERCLOS": window_data["metrics"]["PERCLOS"],
-        "metric_BlinkRate": window_data["metrics"]["BlinkRate"],
-        "metric_YawnRate": window_data["metrics"]["YawnRate"],
-        "metric_Entropy": window_data["metrics"]["Entropy"],
-        "metric_SteeringRate": window_data["metrics"]["SteeringRate"],
-        "metric_SDLP": window_data["metrics"]["SDLP"],
+        # 1. Create a dedicated group (folder) for this window
+        group_name = f"window_{window_id}"
         
-        # Raw Data Arrays (Strings of lists)
-        "raw_ear": str(window_data["raw_data"]["ear"]),
-        "raw_mar": str(window_data["raw_data"]["mar"]),
-        "raw_steering": str(window_data["raw_data"]["steering"]),
-        "raw_lane": str(window_data["raw_data"]["lane"]),
-        
-        # --- NEW: Raw Heart Rate & PPG Arrays ---
-        "raw_hr": str(window_data["raw_data"]["hr"]),    # BPM history (instant_bpm)
-        "smooth_bpm": str(window_data["raw_data"].get("smooth_bpm", [])), # smooth_bpm history
-        "raw_ppg": str(window_data["raw_data"]["ppg"]),  # Raw Sensor Data (~200Hz)
-    }
+        # If the group somehow already exists, we will use it to update/overwrite.
+        window_group = f.require_group(group_name)
 
-    # 2. Add Annotator Labels
-    for annotator, lbl in labels_dict.items():
-        prefix = annotator.replace(" ", "_")
-        row[f"{prefix}_drowsiness_level"] = lbl.get("drowsiness_level", "")
-        row[f"{prefix}_notes"] = lbl.get("notes", "")
-        row[f"{prefix}_voice_feedback"] = lbl.get("voice_feedback", "")
-        row[f"{prefix}_submission_type"] = lbl.get("submission_type", "")
+        # 2. Save Scalar Window Attributes
+        window_group.attrs["window_id"] = window_id
+        window_group.attrs["initial_timestamp"] = time.time()
+        window_group.attrs["video"] = f"window_{window_id}.mp4"
+
+        # 3. Save Computed Metrics as Attributes
+        for metric_name, metric_val in window_data["metrics"].items():
+            window_group.attrs[f"metric_{metric_name}"] = float(metric_val)
+
+        # 4. Save Annotator Labels as Attributes
+        for annotator, lbl in labels_dict.items():
+            prefix = annotator.replace(" ", "_")
+            
+            # Helper to cast Nones or dict strings to normal strings for HDF5 compatibility
+            def safe_str(val):
+                return str(val) if val is not None else ""
+
+            window_group.attrs[f"{prefix}_drowsiness_level"] = safe_str(lbl.get("drowsiness_level", ""))
+            window_group.attrs[f"{prefix}_notes"] = safe_str(lbl.get("notes", ""))
+            window_group.attrs[f"{prefix}_voice_feedback"] = safe_str(lbl.get("voice_feedback", ""))
+            window_group.attrs[f"{prefix}_submission_type"] = safe_str(lbl.get("submission_type", ""))
+            
+            window_group.attrs[f"{prefix}_instant_bpm"] = float(lbl.get("instant_bpm", 0.0))
+            window_group.attrs[f"{prefix}_smooth_bpm"] = float(lbl.get("smooth_bpm", 0.0))
+            
+            window_group.attrs[f"{prefix}_action_fan"] = int(bool(lbl.get("action_fan", False)))
+            window_group.attrs[f"{prefix}_action_voice_command"] = int(bool(lbl.get("action_voice_command", False)))
+            window_group.attrs[f"{prefix}_action_steering_vibration"] = int(bool(lbl.get("action_steering_vibration", False)))
+            window_group.attrs[f"{prefix}_action_save_video"] = int(bool(lbl.get("action_save_video", False)))
+
+        # 5. Save Raw Arrays natively as HDF5 Datasets inside this group
+        raw_group = window_group.require_group("raw_data")
         
-        # Snapshot values
-        row[f"{prefix}_instant_bpm"] = lbl.get("instant_bpm", 0.0)
-        row[f"{prefix}_smooth_bpm"] = lbl.get("smooth_bpm", 0.0)
-        
-        row[f"{prefix}_action_fan"] = int(bool(lbl.get("action_fan", False)))
-        row[f"{prefix}_action_voice_command"] = int(bool(lbl.get("action_voice_command", False)))
-        row[f"{prefix}_action_steering_vibration"] = int(bool(lbl.get("action_steering_vibration", False)))
-        row[f"{prefix}_action_save_video"] = int(bool(lbl.get("action_save_video", False)))
+        for sensor_name, sensor_array in window_data["raw_data"].items():
+            # If a dataset already exists in this group, delete it before rewriting
+            if sensor_name in raw_group:
+                del raw_group[sensor_name]
+                
+            # Convert pure python lists to float32 numpy arrays for HDF5 storage
+            np_arr = np.array(sensor_array, dtype=np.float32)
+            raw_group.create_dataset(sensor_name, data=np_arr)
 
-    # 3. Write to CSV (Handle Headers)
-    if not os.path.exists(csv_path):
-        with open(csv_path, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=list(row.keys()))
-            writer.writeheader()
-            writer.writerow(row)
-        return
-
-    # If file exists, check for new columns (like smooth_bpm) and update header if needed
-    with open(csv_path, "r", newline="") as f:
-        reader = csv.DictReader(f)
-        existing_fields = reader.fieldnames or []
-        existing_rows = list(reader)
-
-    new_fields = [f for f in row.keys() if f not in existing_fields]
-    if new_fields:
-        all_fields = existing_fields + new_fields
-        with open(csv_path, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=all_fields)
-            writer.writeheader()
-            writer.writerows(existing_rows)
-            writer.writerow(row)
-    else:
-        with open(csv_path, "a", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=existing_fields)
-            writer.writerow(row)
 
 
 # -------------------------------------------------------------------------
@@ -444,7 +435,7 @@ class DriverAssistanceNode(Node):
                 "action_save_video": ann.action_save_video,
             }
 
-        save_to_csv(window_id, window_data, labels_dict, driver_id=self.driver_id)
+        save_to_hdf5(window_id, window_data, labels_dict, driver_id=self.driver_id)
         
         # commented to save all the videos
 
