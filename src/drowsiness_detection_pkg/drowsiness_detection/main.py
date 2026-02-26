@@ -4,6 +4,7 @@ import csv
 import cv2
 import threading
 from collections import deque
+import time
 
 import rclpy
 from rclpy.node import Node
@@ -40,7 +41,7 @@ def save_to_csv(window_id, window_data, labels_dict, driver_id="driver_1"):
     # 1. Prepare the row data
     row = {
         "window_id": window_id,
-        "initial_timestamp": window_data.get("timestamp", 0.0),
+        "initial_timestamp": time.time(), # timestamp of the first frame in the window unix timestamp
         "video": f"window_{window_id}.mp4",
         
         # Computed Metrics
@@ -447,7 +448,7 @@ class DriverAssistanceNode(Node):
         
         # commented to save all the videos
 
-        
+
         # path = self.finished_video_paths.pop(window_id, None)
         # keep = any(ann.action_save_video for ann in combined.annotator_labels)
         # if path and not keep:
