@@ -40,6 +40,7 @@ def save_to_csv(window_id, window_data, labels_dict, driver_id="driver_1"):
     # 1. Prepare the row data
     row = {
         "window_id": window_id,
+        "initial_timestamp": window_data.get("timestamp", 0.0),
         "video": f"window_{window_id}.mp4",
         
         # Computed Metrics
@@ -57,7 +58,8 @@ def save_to_csv(window_id, window_data, labels_dict, driver_id="driver_1"):
         "raw_lane": str(window_data["raw_data"]["lane"]),
         
         # --- NEW: Raw Heart Rate & PPG Arrays ---
-        "raw_hr": str(window_data["raw_data"]["hr"]),    # BPM history
+        "raw_hr": str(window_data["raw_data"]["hr"]),    # BPM history (instant_bpm)
+        "smooth_bpm": str(window_data["raw_data"].get("smooth_bpm", [])), # smooth_bpm history
         "raw_ppg": str(window_data["raw_data"]["ppg"]),  # Raw Sensor Data (~200Hz)
     }
 
@@ -86,7 +88,7 @@ def save_to_csv(window_id, window_data, labels_dict, driver_id="driver_1"):
             writer.writerow(row)
         return
 
-    # If file exists, check for new columns (like raw_ppg) and update header if needed
+    # If file exists, check for new columns (like smooth_bpm) and update header if needed
     with open(csv_path, "r", newline="") as f:
         reader = csv.DictReader(f)
         existing_fields = reader.fieldnames or []
@@ -134,7 +136,8 @@ class DriverAssistanceNode(Node):
         self.lane_offset_buffer = deque(maxlen=2000)
         
         # --- NEW: Buffers for Heart Rate and PPG ---
-        self.hr_buffer = deque(maxlen=2000)
+        self.hr_buffer = deque(maxlen=2000)      # Stores instant_bpm (index 0)
+        self.smooth_hr_buffer = deque(maxlen=2000) # Stores smooth_bpm (index 1)
         # PPG is ~200Hz. 60s * 200 = 12,000 samples. 
         # Using 20,000 to be safe and cover >1 minute.
         self.ppg_buffer = deque(maxlen=20000)
@@ -156,6 +159,8 @@ class DriverAssistanceNode(Node):
         self.video_base_dir = os.path.join(data_dir, self.driver_id, "videos")
         os.makedirs(self.video_base_dir, exist_ok=True)
 
+        # Removed: Full Session Video writers and logic
+
         # ROS I/O
         self.create_subscription(EarMarValue, "/ear_mar", self.ear_mar_callback, qos_profile_sensor_data)
         self.create_subscription(CarlaEgoVehicleControl, "/carla/ego/vehicle_control_cmd", self.steering_callback, 10)
@@ -164,6 +169,7 @@ class DriverAssistanceNode(Node):
         self.create_subscription(CombinedAnnotations, "/driver_assistance/combined_annotations", self.combined_annotations_callback, 10)
         
         # --- Heart Rate Subscriptions ---
+        # The heart_rate_bpm topic publishes [instant_bpm, smooth_bpm]
         self.create_subscription(Float32MultiArray, "/heart_rate_bpm", self.hr_callback, 10)
         # Subscribe to Raw PPG (Expects Float32MultiArray with batches of samples)
         self.create_subscription(Float32MultiArray, "/raw_ppg", self.ppg_callback, 10)
@@ -200,9 +206,15 @@ class DriverAssistanceNode(Node):
     # ---------------------------------------------------------------------
     def cb_camera(self, msg: Image):
         try:
-            cv_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="rgb8")
+            # Convert ROS Image to CV2 (OpenCV uses BGR by default, but we want correct colors)
+            # 'bgr8' is the standard for OpenCV VideoWriter.
+            # If the source is RGB, use 'bgr8' to automatically convert.
+            cv_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+            
+            h, w = cv_img.shape[:2]
+
+            # 1. Handle Window Video
             if self.video_writer is None and self.current_video_path:
-                h, w = cv_img.shape[:2]
                 self.video_writer = cv2.VideoWriter(
                     self.current_video_path,
                     cv2.VideoWriter_fourcc(*"mp4v"),
@@ -211,6 +223,7 @@ class DriverAssistanceNode(Node):
                 )
             if self.video_writer:
                 self.video_writer.write(cv_img)
+
         except Exception as e:
             self.get_logger().error(f"Camera callback error: {e}")
 
@@ -233,10 +246,16 @@ class DriverAssistanceNode(Node):
     # --- Heart Rate Callback ---
     def hr_callback(self, msg: Float32MultiArray):
         ts = self.get_clock().now().nanoseconds / 1e9
+        # Msg structure from heartratenode.py: [instant_bpm, smooth_bpm]
         if len(msg.data) >= 1:
             instant_bpm = float(msg.data[0])
             with self.buffer_lock:
                 self.hr_buffer.append((ts, instant_bpm))
+        
+        if len(msg.data) >= 2:
+            smooth_bpm = float(msg.data[1])
+            with self.buffer_lock:
+                self.smooth_hr_buffer.append((ts, smooth_bpm))
 
     # --- NEW: Raw PPG Callback ---
     def ppg_callback(self, msg: Float32MultiArray):
@@ -339,6 +358,7 @@ class DriverAssistanceNode(Node):
             
             # Slice Heart Rate and PPG Buffers
             hr_samples = [(t, v) for t, v in self.hr_buffer if window_start_time <= t < end_time]
+            smooth_hr_samples = [(t, v) for t, v in self.smooth_hr_buffer if window_start_time <= t < end_time]
             ppg_samples = [(t, v) for t, v in self.ppg_buffer if window_start_time <= t < end_time]
 
         # Validation (We allow HR/PPG to be empty, but need EAR/MAR)
@@ -356,6 +376,12 @@ class DriverAssistanceNode(Node):
             hr_vals = list(map(float, hr_vals))
         else:
             hr_vals = []
+
+        if smooth_hr_samples:
+            _, smooth_hr_vals = zip(*smooth_hr_samples)
+            smooth_hr_vals = list(map(float, smooth_hr_vals))
+        else:
+            smooth_hr_vals = []
             
         if ppg_samples:
             _, ppg_vals = zip(*ppg_samples)
@@ -387,9 +413,10 @@ class DriverAssistanceNode(Node):
             "steering": list(map(float, steering_vals)),
             "lane": list(map(float, lane_vals)),
             "hr": hr_vals, 
+            "smooth_bpm": smooth_hr_vals, # Added smooth bpm list
             "ppg": ppg_vals, # <--- Full array of raw PPG samples
         }
-        return {"metrics": metrics, "raw_data": raw_data}
+        return {"metrics": metrics, "raw_data": raw_data, "timestamp": window_start_time}
 
     def try_merge_and_save(self, window_id):
         with self.buffer_lock:
@@ -418,14 +445,13 @@ class DriverAssistanceNode(Node):
 
         save_to_csv(window_id, window_data, labels_dict, driver_id=self.driver_id)
         
-        path = self.finished_video_paths.pop(window_id, None)
-        # # keep = any(ann.action_save_video for ann in combined.annotator_labels)
-        # keep = True # to save all the videos
-        # if path and not keep:
-        #     if os.path.exists(path):
-        #         os.remove(path)
+        # --- MODIFIED: Always keep the video file ---
+        # Removed logic that deleted video if action_save_video was False
         
         self.get_logger().info(f"[MERGE] Window {window_id} saved with HR & PPG data.")
+
+    def destroy_node(self):
+        super().destroy_node()
 
 
 def main(args=None):
