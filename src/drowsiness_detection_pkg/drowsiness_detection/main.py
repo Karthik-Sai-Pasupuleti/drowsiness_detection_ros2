@@ -445,8 +445,14 @@ class DriverAssistanceNode(Node):
 
         save_to_csv(window_id, window_data, labels_dict, driver_id=self.driver_id)
         
-        # --- MODIFIED: Always keep the video file ---
-        # Removed logic that deleted video if action_save_video was False
+        # commented to save all the videos
+
+        
+        # path = self.finished_video_paths.pop(window_id, None)
+        # keep = any(ann.action_save_video for ann in combined.annotator_labels)
+        # if path and not keep:
+        #     if os.path.exists(path):
+        #         os.remove(path)
         
         self.get_logger().info(f"[MERGE] Window {window_id} saved with HR & PPG data.")
 
