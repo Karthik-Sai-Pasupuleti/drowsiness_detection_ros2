@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.spinnaker
-    image: karthiksai2403/spinnaker_camera:v2.0
+    image: karthiksai2403/spinnaker_camera:v1.0
     container_name: spinnaker_camera
     network_mode: host
     ipc: host
@@ -17,7 +17,10 @@ services:
       - CAMERA_SERIAL=${CAMERA_SERIAL:-24364301} # Pass Camera Serial to container
 
   carla_sim:
-    image: carlasim/carla:0.9.16
+    build:
+      context: .
+      dockerfile: Dockerfile.carla
+    image: custom_carla_maps:0.9.16
     container_name: carla-ros2
     runtime: nvidia
     deploy:
@@ -26,17 +29,20 @@ services:
           devices:
             - driver: nvidia
               count: all
-              capabilities: [ gpu ]
+              capabilities: [ gpu, compute, utility, graphics, display ]
     network_mode: host
     ipc: host
     user: "1000:1000"
+    working_dir: /home/carla
     environment:
       - DISPLAY=${DISPLAY}
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-    command: bash CarlaUE4.sh --ros2 -nosound
+      # Vulkan drivers
+      - /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
+    command: [ "/bin/bash", "/home/carla/CarlaUE4.sh", "--ros2", "-nosound", "-vulkan" ]
 
   drowsiness_app:
     build: .
@@ -46,6 +52,7 @@ services:
 
     devices:
       - /dev/hidraw4:/dev/logitech_g29
+      - /dev/snd:/dev/snd
 
     deploy:
       resources:
@@ -58,6 +65,10 @@ services:
     ipc: host
     privileged: true # Required for USB camera access
     volumes:
+      - /run/user/1000/pulse:/run/user/1000/pulse # Bridges PulseAudio socket
+      - ~/.config/pulse/cookie:/root/.config/pulse/cookie # Permission cookie
+      - /var/run/dbus:/var/run/dbus # Communication bus
+
       - /dev/bus/usb:/dev/bus/usb # Map USB devices
       - /dev/input:/dev/input # Map input devices (joystick/keyboard)
       - /tmp/.X11-unix:/tmp/.X11-unix:rw # Map X11 socket for GUI
@@ -66,8 +77,10 @@ services:
       - /dev:/dev
       - ${DATA_DIR_HOST:-./drowsiness_data}:/root/ws/drowsiness_data
     environment:
+      - PULSE_SERVER=unix:/run/user/1000/pulse/native
+
       - DISPLAY=${DISPLAY}
-      - DRIVER_ID=${DRIVER_ID:-test_driver} # Pass Driver ID to container
+      - DRIVER_ID=${DRIVER_ID:-maria} # Pass Driver ID to container
       - DATA_DIR=/root/ws/drowsiness_data
 
       - XAUTHORITY=/root/.Xauthority
