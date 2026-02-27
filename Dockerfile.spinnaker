@@ -31,4 +31,4 @@ RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc && \
     echo "source /root/ws/install/setup.bash" >> ~/.bashrc
 
 # Start the driver automatically when the container runs
-ENTRYPOINT ["/bin/bash", "-c", "source /root/ws/install/setup.bash && ros2 launch spinnaker_camera_driver driver_node.launch.py camera_type:=blackfly_s serial:=\"'${CAMERA_SERIAL}'\""]
+ENTRYPOINT ["/bin/bash", "-c", "source /root/ws/install/setup.bash && ros2 launch spinnaker_camera_driver driver_node.launch.py camera_type:=blackfly_s image_width:=1440 image_height:=1080 frame_rate:=30.0 serial:=\"'${CAMERA_SERIAL}'\""]
