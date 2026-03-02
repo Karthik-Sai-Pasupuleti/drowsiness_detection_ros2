@@ -33,7 +33,7 @@ services:
     network_mode: host
     ipc: host
     user: "1000:1000"
-    working_dir: /home/carla
+    working_dir: /workspace
     environment:
       - DISPLAY=${DISPLAY}
       - NVIDIA_VISIBLE_DEVICES=all
@@ -42,7 +42,7 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       # Vulkan drivers
       - /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
-    command: [ "/bin/bash", "/home/carla/CarlaUE4.sh", "--ros2", "-nosound", "-vulkan" ]
+    command: bash CarlaUE4.sh --ros2 -nosound
 
   drowsiness_app:
     build: .
@@ -78,11 +78,10 @@ services:
       - ${DATA_DIR_HOST:-./drowsiness_data}:/root/ws/drowsiness_data
     environment:
       - PULSE_SERVER=unix:/run/user/1000/pulse/native
-
+      - HDF5_USE_FILE_LOCKING=FALSE
       - DISPLAY=${DISPLAY}
-      - DRIVER_ID=${DRIVER_ID:-maria} # Pass Driver ID to container
+      - DRIVER_ID=${DRIVER_ID} # Pass Driver ID to container
       - DATA_DIR=/root/ws/drowsiness_data
-
       - XAUTHORITY=/root/.Xauthority
       - XDG_RUNTIME_DIR=/tmp/runtime-root
     restart: unless-stopped

@@ -38,6 +38,9 @@ import time
 # -------------------------------------------------------------------------
 # HDF5 save utility (Single File, Multiple Windows)
 # -------------------------------------------------------------------------
+# Global lock to prevent HDF5 from crashing when accessed by multiple threads
+H5_WRITE_LOCK = threading.Lock()
+
 def save_to_hdf5(window_id, window_data, labels_dict, driver_id="driver_1"):
     """
     Append metrics, arrays, and labels for each window to a single HDF5 file.
@@ -46,60 +49,71 @@ def save_to_hdf5(window_id, window_data, labels_dict, driver_id="driver_1"):
     base_folder = os.environ.get("DATA_DIR", "drowsiness_data")
     driver_folder = os.path.join(base_folder, driver_id)
     os.makedirs(driver_folder, exist_ok=True)
-    
+
     # We use ONE file for the whole session
     h5_path = os.path.join(driver_folder, "session_data.h5")
 
-    # Open file in 'append' mode. It creates it if it doesn't exist.
-    with h5py.File(h5_path, "a") as f:
-        
-        # 1. Create a dedicated group (folder) for this window
-        group_name = f"window_{window_id}"
-        
-        # If the group somehow already exists, we will use it to update/overwrite.
-        window_group = f.require_group(group_name)
-
-        # 2. Save Scalar Window Attributes
-        window_group.attrs["window_id"] = window_id
-        window_group.attrs["initial_timestamp"] = time.time()
-        window_group.attrs["video"] = f"window_{window_id}.mp4"
-
-        # 3. Save Computed Metrics as Attributes
-        for metric_name, metric_val in window_data["metrics"].items():
-            window_group.attrs[f"metric_{metric_name}"] = float(metric_val)
-
-        # 4. Save Annotator Labels as Attributes
-        for annotator, lbl in labels_dict.items():
-            prefix = annotator.replace(" ", "_")
+    # Safely lock the thread to prevent HDF5 silent crashes
+    with H5_WRITE_LOCK:
+        try:
+            # Explicitly create if missing, then append
+            mode = "a" if os.path.exists(h5_path) else "w"
             
-            # Helper to cast Nones or dict strings to normal strings for HDF5 compatibility
-            def safe_str(val):
-                return str(val) if val is not None else ""
-
-            window_group.attrs[f"{prefix}_drowsiness_level"] = safe_str(lbl.get("drowsiness_level", ""))
-            window_group.attrs[f"{prefix}_notes"] = safe_str(lbl.get("notes", ""))
-            window_group.attrs[f"{prefix}_voice_feedback"] = safe_str(lbl.get("voice_feedback", ""))
-            window_group.attrs[f"{prefix}_submission_type"] = safe_str(lbl.get("submission_type", ""))
-            
-            window_group.attrs[f"{prefix}_instant_bpm"] = float(lbl.get("instant_bpm", 0.0))
-            window_group.attrs[f"{prefix}_smooth_bpm"] = float(lbl.get("smooth_bpm", 0.0))
-            
-            window_group.attrs[f"{prefix}_action_fan"] = int(bool(lbl.get("action_fan", False)))
-            window_group.attrs[f"{prefix}_action_voice_command"] = int(bool(lbl.get("action_voice_command", False)))
-            window_group.attrs[f"{prefix}_action_steering_vibration"] = int(bool(lbl.get("action_steering_vibration", False)))
-            window_group.attrs[f"{prefix}_action_save_video"] = int(bool(lbl.get("action_save_video", False)))
-
-        # 5. Save Raw Arrays natively as HDF5 Datasets inside this group
-        raw_group = window_group.require_group("raw_data")
-        
-        for sensor_name, sensor_array in window_data["raw_data"].items():
-            # If a dataset already exists in this group, delete it before rewriting
-            if sensor_name in raw_group:
-                del raw_group[sensor_name]
+            with h5py.File(h5_path, mode) as f:
+                # 1. Create a dedicated group (folder) for this window
+                group_name = f"window_{window_id}"
                 
-            # Convert pure python lists to float32 numpy arrays for HDF5 storage
-            np_arr = np.array(sensor_array, dtype=np.float32)
-            raw_group.create_dataset(sensor_name, data=np_arr)
+                # If the group somehow already exists, we will use it to update/overwrite.
+                window_group = f.require_group(group_name)
+                
+                # 2. Save Scalar Window Attributes
+                window_group.attrs["window_id"] = window_id
+                window_group.attrs["initial_timestamp"] = time.time()
+                window_group.attrs["video"] = f"window_{window_id}.mp4"
+                
+                # 3. Save Computed Metrics as Attributes
+                for metric_name, metric_val in window_data["metrics"].items():
+                    window_group.attrs[f"metric_{metric_name}"] = float(metric_val)
+                
+                # 4. Save Annotator Labels as Attributes
+                for annotator, lbl in labels_dict.items():
+                    prefix = annotator.replace(" ", "_")
+                    
+                    # Helper to cast Nones or dict strings to normal strings for HDF5 compatibility
+                    def safe_str(val):
+                        return str(val) if val is not None else ""
+                    
+                    window_group.attrs[f"{prefix}_drowsiness_level"] = safe_str(lbl.get("drowsiness_level", ""))
+                    window_group.attrs[f"{prefix}_notes"] = safe_str(lbl.get("notes", ""))
+                    window_group.attrs[f"{prefix}_voice_feedback"] = safe_str(lbl.get("voice_feedback", ""))
+                    window_group.attrs[f"{prefix}_submission_type"] = safe_str(lbl.get("submission_type", ""))
+                    
+                    window_group.attrs[f"{prefix}_instant_bpm"] = float(lbl.get("instant_bpm", 0.0))
+                    window_group.attrs[f"{prefix}_smooth_bpm"] = float(lbl.get("smooth_bpm", 0.0))
+                    
+                    window_group.attrs[f"{prefix}_action_fan"] = int(bool(lbl.get("action_fan", False)))
+                    window_group.attrs[f"{prefix}_action_voice_command"] = int(bool(lbl.get("action_voice_command", False)))
+                    window_group.attrs[f"{prefix}_action_steering_vibration"] = int(bool(lbl.get("action_steering_vibration", False)))
+                    window_group.attrs[f"{prefix}_action_save_video"] = int(bool(lbl.get("action_save_video", False)))
+                
+                # 5. Save Raw Arrays natively as HDF5 Datasets inside this group
+                raw_group = window_group.require_group("raw_data")
+                
+                for sensor_name, sensor_array in window_data["raw_data"].items():
+                    # If a dataset already exists in this group, delete it before rewriting
+                    if sensor_name in raw_group:
+                        del raw_group[sensor_name]
+                        
+                    # Convert pure python lists to float32 numpy arrays for HDF5 storage
+                    np_arr = np.array(sensor_array, dtype=np.float32)
+                    raw_group.create_dataset(sensor_name, data=np_arr)
+                    
+                # Force HDF5 to commit the changes to the disk immediately
+                f.flush()
+                
+        except Exception as e:
+            print(f"[HDF5 ERROR] Failed to save window {window_id}: {e}")
+
 
 # -------------------------------------------------------------------------
 # Main node
