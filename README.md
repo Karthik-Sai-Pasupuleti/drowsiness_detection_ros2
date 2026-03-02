@@ -297,3 +297,8 @@ ros2 launch drowsiness_detection_pkg drowsiness.launch.py
 xhost +local:docker
 
 
+Fresh build and rebuild:
+docker compose down -v --rmi all --remove-orphans
+docker builder prune -a -f
+docker compose build --no-cache
+docker compose up

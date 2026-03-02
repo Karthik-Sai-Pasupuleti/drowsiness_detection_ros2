@@ -124,7 +124,6 @@ OBJECT_TO_COLOR = [
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
 
-
 def find_weather_presets():
     rgx = re.compile(".+?(?:(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|$)")
     name = lambda x: " ".join(m.group(0) for m in rgx.finditer(x))
@@ -1307,7 +1306,7 @@ def game_loop(args):
         client = carla.Client(args.host, args.port)
         client.set_timeout(2000.0)
 
-        sim_world = client.load_world("Town04")
+        sim_world = client.load_world("Town11")
         traffic_manager = client.get_trafficmanager()
         if args.sync:
             original_settings = sim_world.get_settings()
