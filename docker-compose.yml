@@ -34,15 +34,17 @@ services:
     ipc: host
     user: "1000:1000"
     working_dir: /workspace
+    ulimits:
+      memlock: -1
     environment:
       - DISPLAY=${DISPLAY}
       - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all,compute,video,graphics,utility
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       # Vulkan drivers
       - /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
-    command: bash CarlaUE4.sh --ros2 -nosound
+    command: bash CarlaUE4.sh --ros2 -nosound -renderOffscreen -quality-level=Low -NoVSync -ini:Engine:[SystemSettings]:r.Streaming.PoolSize=0
 
   drowsiness_app:
     build: .
