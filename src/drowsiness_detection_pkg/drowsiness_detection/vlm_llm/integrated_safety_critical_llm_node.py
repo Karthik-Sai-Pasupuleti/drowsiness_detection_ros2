@@ -43,7 +43,7 @@ class IntegratedSafetyCriticalLLMNode(Node):
 
 
         # === Parameters ===
-        self.declare_parameter("driver_id", "maria")
+        self.declare_parameter("driver_id", "test_driver")
         self.driver_id = self.get_parameter("driver_id").value
         
         self.declare_parameter("ollama_endpoint", "http://localhost:11434")

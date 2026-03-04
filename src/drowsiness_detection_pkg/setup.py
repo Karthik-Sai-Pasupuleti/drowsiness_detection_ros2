@@ -34,6 +34,8 @@ setup(
     ],
     install_requires=[
         "setuptools",
+        "scikit-learn",
+        "joblib",
     ],
     zip_safe=True,
     maintainer="user",
@@ -46,7 +48,9 @@ setup(
             "carla_node = drowsiness_detection.carla.carla_manual_control:main",
             "driver_assistance_node = drowsiness_detection.main:main",
             "drowsiness_gui = drowsiness_detection.labelling.app:main",
-            
+            # --- NEW ML NODES ---
+            "camera_ml_node = drowsiness_detection.camera.camera_ml_node:main",
+            "carla_ml_node = drowsiness_detection.carla.carla_ml_node:main",
             # --- NEW HEART RATE NODE ---
             "heartratenode = drowsiness_detection.heart_rate.heartratenode:main",
             # --- NEW VLM_LLM NODE ---

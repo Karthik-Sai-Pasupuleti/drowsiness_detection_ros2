@@ -86,6 +86,22 @@ def generate_launch_description():
                 output="screen",
                 parameters=[{"driver_id": driver_id,"output_dir": "/root/ws/drowsiness_data/vlm_events"}],  
             ),
+            # Camera ML Node
+            Node(
+                package="drowsiness_detection_pkg",
+                executable="camera_ml_node",
+                name="camera_ml_node",
+                output="screen",
+            ),
+            
+            # CARLA ML Node
+            Node(
+                package="drowsiness_detection_pkg",
+                executable="carla_ml_node",
+                name="carla_ml_node",
+                output="screen",
+            ),
+
             
         ]
     )

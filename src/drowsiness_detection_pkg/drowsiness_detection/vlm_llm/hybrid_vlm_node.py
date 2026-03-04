@@ -54,7 +54,7 @@ class HybridVlmNode(Node):
         super().__init__("hybrid_vlm_node")
 
         # Parameters
-        self.declare_parameter("driver_id", "maria")
+        self.declare_parameter("driver_id", "test_driver")
         self.driver_id = self.get_parameter("driver_id").value
 
         self.declare_parameter("output_dir", "./vlm_triggers")
