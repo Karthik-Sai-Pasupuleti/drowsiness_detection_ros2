@@ -49,7 +49,9 @@ setup(
             
             # --- NEW HEART RATE NODE ---
             "heartratenode = drowsiness_detection.heart_rate.heartratenode:main",
-            
+            # --- NEW VLM_LLM NODE ---
+            'hybrid_vlm_node = drowsiness_detection.vlm_llm.hybrid_vlm_node:main',
+            'integrated_llm_node = drowsiness_detection.vlm_llm.integrated_safety_critical_llm_node:main',
             "steering_vibration_node = drowsiness_detection.bot.controls.steering_node:main",
             "speaker_node = drowsiness_detection.bot.controls.speaker_node:main",
             "fan_node = drowsiness_detection.bot.controls.fan_node:main",

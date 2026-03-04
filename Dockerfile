@@ -10,18 +10,21 @@ SHELL ["/bin/bash", "-c"]
 WORKDIR /root/ws
 
 # 4. Copy your local package source code
-# 4. Copy your local package source code
 COPY src ./src
 COPY requirements.txt /root/ws/requirements.txt
 COPY start.sh /start.sh
 RUN chmod +x /start.sh
 
-# Install pip
-RUN apt-get update && apt-get install -y python3-pip && rm -rf /var/lib/apt/lists/*
 
-# 5. Install Python and ROS dependencies
-# Note: We run rosdep update before installing
+# Install pip and dependencies
+RUN apt-get update && apt-get install -y python3-pip && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir -r /root/ws/requirements.txt
+
+
+# Install ROS dependencies via rosdep (Crucial for building the new VLM_LLM nodes)
+RUN apt-get update && rosdep init || true
+RUN rosdep update && rosdep install --from-paths src --ignore-src -r -y && rm -rf /var/lib/apt/lists/*
+
 
 
 # Set the entrypoint
