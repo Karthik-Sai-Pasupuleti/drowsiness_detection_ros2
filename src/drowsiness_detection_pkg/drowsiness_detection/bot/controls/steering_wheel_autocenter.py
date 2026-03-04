@@ -45,7 +45,7 @@ class WheelFFBNode(Node):
     def publish_initial_ffb(self):
         """Publish a single FFB value of 30000 and cancel the timer."""
         msg = Int32()
-        msg.data = 30000  # initial autocenter strength
+        msg.data = 25000  # initial autocenter strength
         self.ffb_pub.publish(msg)
         self.get_logger().info(f"Initial /wheel_ffb value published: {msg.data}")
 

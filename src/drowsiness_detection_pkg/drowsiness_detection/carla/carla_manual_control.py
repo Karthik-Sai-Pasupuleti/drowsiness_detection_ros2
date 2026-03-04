@@ -452,8 +452,8 @@ class DualControl(Node):
                     world.hud.toggle_info()
                 elif event.button == 2:
                     world.camera_manager.toggle_camera()
-                # elif event.button == 3:
-                #     world.next_weather()
+                elif event.button == 3:
+                    world.next_weather()
                 elif event.button == self._reverse_idx:
                     self._control.gear = 1 if self._control.reverse else -1
                 elif event.button == 23:
@@ -1304,9 +1304,16 @@ def game_loop(args):
 
     try:
         client = carla.Client(args.host, args.port)
-        client.set_timeout(2000.0)
 
-        sim_world = client.load_world("Town11")
+        client.set_timeout(2000.0)
+        sim_world = client.load_world('Town06_Opt', carla.MapLayer.Buildings | carla.MapLayer.ParkedVehicles)
+        sim_world.unload_map_layer(carla.MapLayer.Buildings)
+        sim_world.unload_map_layer(carla.MapLayer.Foliage)
+        sim_world.unload_map_layer(carla.MapLayer.Walls)    
+        sim_world.unload_map_layer(carla.MapLayer.StreetLights)
+    
+
+
         traffic_manager = client.get_trafficmanager()
         if args.sync:
             original_settings = sim_world.get_settings()
@@ -1334,6 +1341,8 @@ def game_loop(args):
         world = World(sim_world, hud, traffic_manager, args)
         controller = DualControl(world, args.autopilot)
 
+
+
         if args.sync:
             sim_world.tick()
         else:
@@ -1354,7 +1363,7 @@ def game_loop(args):
             vehicle = world.player
             v = vehicle.get_velocity()
             # setting speed limit
-            player_max_speed = 90  # 25 m/s = 90 km/h
+            player_max_speed = 50  # 25 m/s = 90 km/h
             speed = 3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2)
             
             controller.enforce_speed_limit(speed, player_max_speed)
