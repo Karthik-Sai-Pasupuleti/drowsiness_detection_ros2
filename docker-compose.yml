@@ -16,44 +16,37 @@ services:
     environment:
       - CAMERA_SERIAL=${CAMERA_SERIAL:-24364301} # Pass Camera Serial to container
 
-  carla_sim:
-    build:
-      context: .
-      dockerfile: Dockerfile.carla
-    image: custom_carla_maps:0.9.16
-    container_name: carla-ros2
-    runtime: nvidia
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [ gpu, compute, utility, graphics, display ]
-    network_mode: host
-    ipc: host
-    user: "1000:1000"
-    working_dir: /workspace
-    ulimits:
-      memlock: -1
-    environment:
-      - DISPLAY=${DISPLAY}
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=all,compute,video,graphics,utility
-    volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      # Vulkan drivers
-      - /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
-    command: bash CarlaUE4.sh --ros2 -nosound -renderOffscreen -quality-level=Low -NoVSync -ini:Engine:[SystemSettings]:r.Streaming.PoolSize=0
+  # carla_sim:
+  #   image: carlasim/carla:0.9.16
+  #   container_name: carla-ros2
+  #   runtime: nvidia
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [ gpu ]
+  #   network_mode: host
+  #   ipc: host
+  #   user: "1000:1000"
+  #   environment:
+  #     - DISPLAY=${DISPLAY}
+  #     - NVIDIA_VISIBLE_DEVICES=all
+  #     - NVIDIA_DRIVER_CAPABILITIES=all
+  #   volumes:
+  #     - /tmp/.X11-unix:/tmp/.X11-unix:rw
+  #   command: bash CarlaUE4.sh --ros2 -nosound
+
 
   drowsiness_app:
     build: .
-    #image: karthiksai2403/drowsiness_app:v2.0
+    image: karthiksai2403/drowsiness_app:v3.0
     container_name: drowsiness_app
     runtime: nvidia
 
     devices:
-      - /dev/hidraw4:/dev/logitech_g29
+      - /dev/hidraw6:/dev/logitech_g29
       - /dev/snd:/dev/snd
 
     deploy:
