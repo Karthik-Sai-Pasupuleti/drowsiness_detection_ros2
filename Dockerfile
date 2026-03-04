@@ -13,12 +13,11 @@ WORKDIR /root/ws
 COPY src ./src
 COPY requirements.txt /root/ws/requirements.txt
 COPY start.sh /start.sh
-#the .pkl files for ML classifiers
-COPY models ./models
 RUN chmod +x /start.sh
 
 # Install pip and dependencies
 RUN apt-get update && apt-get install -y python3-pip && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir "pip<25" "setuptools<58"
 RUN pip install --no-cache-dir -r /root/ws/requirements.txt
 
 

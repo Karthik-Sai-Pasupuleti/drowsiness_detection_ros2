@@ -87,18 +87,3 @@ services:
       - XAUTHORITY=/root/.Xauthority
       - XDG_RUNTIME_DIR=/tmp/runtime-root
     restart: unless-stopped
-
-  # NEW SERVICE: The LLM Decision Engine
-  llm_reasoner:
-    build: .
-    container_name: drowsiness_llm_reasoner
-    network_mode: host
-    ipc: host
-    volumes:
-      - ${DATA_DIR_HOST:-./drowsiness_data}:/root/ws/drowsiness_data # Same mount as drowsiness_app
-    depends_on:
-      - drowsiness_app
-    # Run the integrated reasoning node
-    entrypoint: [ "/bin/bash", "-c" ]
-    command: [ "source /opt/ros/humble/setup.bash && source /root/ws/install/setup.bash && ros2 run drowsiness_detection_pkg integrated_llm_node" ]
-    restart: unless-stopped

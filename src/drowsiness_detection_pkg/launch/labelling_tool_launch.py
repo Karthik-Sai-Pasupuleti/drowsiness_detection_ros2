@@ -67,6 +67,13 @@ def generate_launch_description():
                 name="steering_vibration_node",
                 output="screen",
             ),
+            #Data Aggregator Node --NEW
+            Node(
+                package="drowsiness_detection_pkg",
+                executable="data_aggregator_node",
+                name="data_aggregator_node",
+                output="screen",
+            ),
             Node(
                 package="drowsiness_detection_pkg",
                 executable="speaker_node",
@@ -79,6 +86,7 @@ def generate_launch_description():
             #     name="fan_node",
             #     output="screen",
             # ),
+            #Hybrid VLM Node --NEW
             Node(
                 package="drowsiness_detection_pkg",
                 executable="hybrid_vlm_node",
@@ -86,22 +94,13 @@ def generate_launch_description():
                 output="screen",
                 parameters=[{"driver_id": driver_id,"output_dir": "/root/ws/drowsiness_data/vlm_events"}],  
             ),
-            # Camera ML Node
+            #Integrated LLM Node --NEW
             Node(
                 package="drowsiness_detection_pkg",
-                executable="camera_ml_node",
-                name="camera_ml_node",
+                executable="integrated_llm_node",
+                name="primary_llm_engine",
                 output="screen",
+                parameters=[{"data_dir": "/root/ws/drowsiness_data/llm_history"}]
             ),
-            
-            # CARLA ML Node
-            Node(
-                package="drowsiness_detection_pkg",
-                executable="carla_ml_node",
-                name="carla_ml_node",
-                output="screen",
-            ),
-
-            
         ]
     )
