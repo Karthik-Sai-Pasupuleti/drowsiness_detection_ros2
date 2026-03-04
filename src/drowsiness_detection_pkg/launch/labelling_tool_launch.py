@@ -78,7 +78,14 @@ def generate_launch_description():
             #     executable="fan_node",
             #     name="fan_node",
             #     output="screen",
-            # )
+            # ),
+            Node(
+                package="drowsiness_detection_pkg",
+                executable="hybrid_vlm_node",
+                name="hybrid_vlm_node",
+                output="screen",
+                parameters=[{"driver_id": driver_id,"output_dir": "/root/ws/drowsiness_data/vlm_events"}],  
+            ),
             
         ]
     )
