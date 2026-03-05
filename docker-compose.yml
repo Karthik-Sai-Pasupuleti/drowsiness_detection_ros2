@@ -86,4 +86,6 @@ services:
       - DATA_DIR=/root/ws/drowsiness_data
       - XAUTHORITY=/root/.Xauthority
       - XDG_RUNTIME_DIR=/tmp/runtime-root
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
