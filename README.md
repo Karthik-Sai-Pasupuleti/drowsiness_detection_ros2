@@ -156,8 +156,8 @@ ip link show
 2. Bring the interface up and assign a static IP:
 
 ```bash
-sudo ip link set enp130s0 up
-sudo ip addr add 192.168.1.10/24 dev enp130s0
+sudo ip link set enp97s0 up
+sudo ip addr add 192.168.0.10/24 dev enp97s0
 ```
 
 
