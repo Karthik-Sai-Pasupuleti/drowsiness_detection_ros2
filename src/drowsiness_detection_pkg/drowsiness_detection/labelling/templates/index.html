@@ -653,7 +653,17 @@
                     responsive: true,
                     maintainAspectRatio: false,
                     scales: {
-                        x: { display: true, grid: { display: false } },
+                        x: {
+                            type: 'linear',
+                            min: 0,
+                            max: 6,
+                            display: true,
+                            grid: { display: true },
+                            ticks: {
+                                stepSize: 1,
+                                callback: function (v) { return v.toFixed(0); }
+                            }
+                        },
                         y: { title: { display: true, text: y_title }, grid: { color: 'rgba(0,0,0,0.1)' } }
                     },
                     plugins: { legend: { display: true } }
@@ -738,16 +748,20 @@
             function updateSingleLineChart(chart, array, y_title, offset = 0.05) {
                 if (!array || array.length === 0) return;
                 const n = array.length;
-                const labels = Array.from({ length: n }, (_, i) => -((n - 1 - i) * (1 / 60)).toFixed(2));
 
-                chart.data.labels = labels;
-                chart.data.datasets[0].data = array;
+                // Map array to {x, y} to fit the 0-6 second linear scale
+                const divisor = n > 1 ? n - 1 : 1;
+                chart.data.labels = []; // Clear labels for linear scale
+                chart.data.datasets[0].data = array.map((v, i) => ({
+                    x: (i * 6 / divisor),
+                    y: v
+                }));
 
                 // Scale config
                 const minVal = Math.min(...array);
                 const maxVal = Math.max(...array);
-                chart.options.scales.x.min = -6;
-                chart.options.scales.x.max = 0;
+                chart.options.scales.x.min = 0;
+                chart.options.scales.x.max = 6;
                 chart.options.scales.y.min = minVal - offset;
                 chart.options.scales.y.max = maxVal + offset;
 

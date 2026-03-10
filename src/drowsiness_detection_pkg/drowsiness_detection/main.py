@@ -302,13 +302,30 @@ class DriverAssistanceNode(Node):
 
     def handle_store_labels(self, request, response):
         window_id = request.window_id
-        combined = CombinedAnnotations()
-        combined.window_id = window_id
-        combined.annotator_labels = list(request.annotator_labels)
-        combined.is_flagged = False
+        
         with self.buffer_lock:
-            self.combined_annotations[window_id] = combined
+            if window_id not in self.combined_annotations:
+                combined = CombinedAnnotations()
+                combined.window_id = window_id
+                combined.annotator_labels = []
+                combined.is_flagged = False
+                self.combined_annotations[window_id] = combined
+            
+            # Merge labels: update if exists, append if new
+            existing_labels = self.combined_annotations[window_id].annotator_labels
+            for new_ann in request.annotator_labels:
+                found = False
+                for i, existing_ann in enumerate(existing_labels):
+                    if existing_ann.annotator_name == new_ann.annotator_name:
+                        existing_labels[i] = new_ann
+                        found = True
+                        break
+                if not found:
+                    existing_labels.append(new_ann)
+
+        # Trigger save (will use current state of combined_annotations)
         self.try_merge_and_save(window_id)
+        
         response.success = True
         response.message = f"Stored labels for window {window_id}"
         return response
@@ -464,45 +481,47 @@ class DriverAssistanceNode(Node):
 
 
     def try_merge_and_save(self, window_id):
+        # We use a lock to ensure data consistency during the merge and save process
         with self.buffer_lock:
             if window_id not in self.pending_metrics or window_id not in self.combined_annotations:
                 return
-            window_data = self.pending_metrics.pop(window_id)
-            combined = self.combined_annotations.pop(window_id)
+            
+            # We DON'T pop here because multiple annotators might submit at different times.
+            # We want each submission to trigger an update/save.
+            # save_to_hdf5 uses require_group and overwrites attributes, so it's safe to call multiple times.
+            window_data = self.pending_metrics[window_id]
+            combined = self.combined_annotations[window_id]
 
+            labels_dict = {}
+            for ann in combined.annotator_labels:
+                labels_dict[ann.annotator_name] = {
+                    "drowsiness_level": ann.drowsiness_level,
+                    "notes": ann.notes,
+                    "voice_feedback": ann.voice_feedback,
+                    "submission_type": ann.submission_type,
+                    
+                    # Snapshots
+                    "instant_bpm": getattr(ann, 'instant_bpm', 0.0),
+                    "smooth_bpm": getattr(ann, 'smooth_bpm', 0.0),
+                    
+                    "action_fan": ann.action_fan,
+                    "action_voice_command": ann.action_voice_command,
+                    "action_steering_vibration": ann.action_steering_vibration,
+                    "action_save_video": ann.action_save_video,
+                }
 
-        labels_dict = {}
-        for ann in combined.annotator_labels:
-            labels_dict[ann.annotator_name] = {
-                "drowsiness_level": ann.drowsiness_level,
-                "notes": ann.notes,
-                "voice_feedback": ann.voice_feedback,
-                "submission_type": ann.submission_type,
-                
-                # Snapshots
-                "instant_bpm": getattr(ann, 'instant_bpm', 0.0),
-                "smooth_bpm": getattr(ann, 'smooth_bpm', 0.0),
-                
-                "action_fan": ann.action_fan,
-                "action_voice_command": ann.action_voice_command,
-                "action_steering_vibration": ann.action_steering_vibration,
-                "action_save_video": ann.action_save_video,
-            }
+            # Perform the save
+            save_to_hdf5(window_id, window_data, labels_dict, driver_id=self.driver_id)
+            
+            # Cleanup old entries to prevent memory growth (keep last 10 windows)
+            for old_id in list(self.pending_metrics.keys()):
+                if old_id < self.current_window_id - 10:
+                    self.pending_metrics.pop(old_id, None)
+            for old_id in list(self.combined_annotations.keys()):
+                if old_id < self.current_window_id - 10:
+                    self.combined_annotations.pop(old_id, None)
 
-
-        save_to_hdf5(window_id, window_data, labels_dict, driver_id=self.driver_id)
-        
-        # commented to save all the videos
-
-
-
-        # path = self.finished_video_paths.pop(window_id, None)
-        # keep = any(ann.action_save_video for ann in combined.annotator_labels)
-        # if path and not keep:
-        #     if os.path.exists(path):
-        #         os.remove(path)
-        
-        self.get_logger().info(f"[MERGE] Window {window_id} saved with HR & PPG data.")
+        self.get_logger().info(f"[MERGE] Window {window_id} saved/updated with latest annotator labels.")
 
 
     def destroy_node(self):

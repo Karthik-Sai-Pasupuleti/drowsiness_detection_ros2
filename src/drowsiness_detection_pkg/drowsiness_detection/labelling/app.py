@@ -268,7 +268,7 @@ class RosBridge(Node):
 
         for annotator in annotators:
             with self.data_manager.lock:
-                labels = self.data_manager.selected_labels_buffer.get(annotator)
+                labels = self.data_manager.selected_labels_buffer.pop(annotator, None)
                 if not labels:
                     continue
                 # Mark as auto-submitted for tracking
