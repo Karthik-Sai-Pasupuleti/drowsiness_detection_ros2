@@ -1,8 +1,8 @@
 services:
   spinnaker_camera:
-    build:
-      context: .
-      dockerfile: Dockerfile.spinnaker
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile.spinnaker
     image: karthiksai2403/spinnaker_camera:v1.0
     container_name: spinnaker_camera
     network_mode: host
@@ -40,8 +40,8 @@ services:
 
 
   drowsiness_app:
-    build: .
-    # image: karthiksai2403/drowsiness_app:v3.0
+    # build: .
+    image: karthiksai2403/drowsiness_app:v4.0
     container_name: drowsiness_app
     runtime: nvidia
 
